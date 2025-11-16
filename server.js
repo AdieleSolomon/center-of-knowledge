@@ -22,7 +22,17 @@ dotenv.config();
 
 const app = express();
 
-// Enhanced error handling
+// Render-specific configuration
+const isRender = process.env.RENDER === 'true';
+const uploadsDir = isRender 
+  ? '/opt/render/project/src/uploads' 
+  : join(__dirname, 'uploads');
+
+console.log('🔧 Environment:', process.env.NODE_ENV || 'development');
+console.log('🏗️  Platform:', isRender ? 'Render' : 'Local');
+console.log('📁 Uploads directory:', uploadsDir);
+
+// Enhanced error handling for production
 process.on('uncaughtException', (error) => {
     console.error('❌ Uncaught Exception:', error);
     process.exit(1);
@@ -33,28 +43,58 @@ process.on('unhandledRejection', (reason, promise) => {
     process.exit(1);
 });
 
-// Security middleware
+// Security middleware for production
 app.use(helmet({
-    crossOriginResourcePolicy: { policy: "cross-origin" }
+    crossOriginResourcePolicy: { policy: "cross-origin" },
+    contentSecurityPolicy: {
+        directives: {
+            defaultSrc: ["'self'"],
+            styleSrc: ["'self'", "'unsafe-inline'", "https://cdnjs.cloudflare.com"],
+            fontSrc: ["'self'", "https://cdnjs.cloudflare.com"],
+            scriptSrc: ["'self'", "'unsafe-inline'"],
+            imgSrc: ["'self'", "data:", "https:", "http:"],
+            connectSrc: ["'self'"]
+        }
+    }
 }));
 
-// Rate limiting
+// Rate limiting - stricter for production
 const limiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 1000 // increased for development
+  max: process.env.NODE_ENV === 'production' ? 200 : 1000,
+  message: 'Too many requests from this IP, please try again later.',
+  standardHeaders: true,
+  legacyHeaders: false
 });
 app.use(limiter);
 
 // Create uploads directory if it doesn't exist
-const uploadsDir = join(__dirname, 'uploads');
 if (!existsSync(uploadsDir)) {
     mkdirSync(uploadsDir, { recursive: true });
-    console.log('✅ Created uploads directory');
+    console.log('✅ Created uploads directory:', uploadsDir);
 }
 
-// CORS configuration - More permissive for development
+// CORS configuration for production
+const allowedOrigins = process.env.NODE_ENV === 'production' 
+    ? [
+        'https://spiritual-center.onrender.com',
+        'https://spiritual-center.com',
+        'https://www.spiritual-center.com'
+      ].filter(Boolean)
+    : ['http://localhost:3000', 'http://localhost:5000', 'http://localhost:3001'];
+
 app.use(cors({
-    origin: true, // Allow all origins in development
+    origin: function (origin, callback) {
+        // Allow requests with no origin (like mobile apps or curl requests)
+        if (!origin) return callback(null, true);
+        
+        if (allowedOrigins.indexOf(origin) === -1) {
+            const msg = 'The CORS policy for this site does not allow access from the specified Origin.';
+            console.log('🚫 CORS blocked origin:', origin);
+            return callback(new Error(msg), false);
+        }
+        return callback(null, true);
+    },
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With']
@@ -68,31 +108,49 @@ app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 app.use('/uploads', express.static(uploadsDir));
 
-// Serve static files from public directory (for frontend)
-app.use(express.static(join(__dirname, 'public')));
+// Serve static files from public directory
+app.use(express.static(join(__dirname, 'public'), {
+    maxAge: process.env.NODE_ENV === 'production' ? '1d' : '0',
+    etag: true,
+    lastModified: true
+}));
 
-// Database connection
+// Database configuration for Render (compatible with external MySQL services)
 const dbConfig = {
-    host: process.env.DB_HOST || 'localhost',
-    user: process.env.DB_USER || 'root',
-    password: process.env.DB_PASSWORD || '',
-    database: process.env.DB_NAME || 'spiritual_center',
-    port: process.env.DB_PORT || 3306
+    host: process.env.DB_HOST || process.env.MYSQL_HOST || 'localhost',
+    user: process.env.DB_USER || process.env.MYSQL_USER || 'root',
+    password: process.env.DB_PASSWORD || process.env.MYSQL_PASSWORD || '',
+    database: process.env.DB_NAME || process.env.MYSQL_DATABASE || 'spiritual_center',
+    port: process.env.DB_PORT || process.env.MYSQL_PORT || 3306,
+    ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
+    connectTimeout: 60000,
+    acquireTimeout: 60000,
+    timeout: 60000,
+    reconnect: true
 };
+
+console.log('🔧 Database Configuration:', {
+    host: dbConfig.host,
+    user: dbConfig.user,
+    database: dbConfig.database,
+    port: dbConfig.port,
+    environment: process.env.NODE_ENV || 'development'
+});
 
 // Initialize database connection pool
 let pool;
 
 async function initializeDatabase() {
     try {
-        console.log('🔄 Initializing database...');
+        console.log('🔄 Initializing database connection...');
         
         // First connect without database to create it if needed
         const tempConnection = await createConnection({
             host: dbConfig.host,
             user: dbConfig.user,
             password: dbConfig.password,
-            port: dbConfig.port
+            port: dbConfig.port,
+            ssl: dbConfig.ssl
         });
 
         // Create database if it doesn't exist
@@ -100,21 +158,33 @@ async function initializeDatabase() {
         console.log(`✅ Database '${dbConfig.database}' created/verified`);
         await tempConnection.end();
 
-        // Now connect to the database
+        // Now connect to the specific database
         pool = createPool({
             ...dbConfig,
             waitForConnections: true,
-            connectionLimit: 10,
+            connectionLimit: process.env.NODE_ENV === 'production' ? 20 : 10,
             queueLimit: 0,
             acquireTimeout: 60000,
-            timeout: 60000
+            timeout: 60000,
+            reconnect: true
         });
 
-        // Test connection
-        const testConn = await pool.getConnection();
-        console.log('✅ Database connection successful');
-        await testConn.execute('SELECT 1');
-        testConn.release();
+        // Test connection with retry logic
+        let retries = 5;
+        while (retries > 0) {
+            try {
+                const testConn = await pool.getConnection();
+                console.log('✅ Database connection successful');
+                await testConn.execute('SELECT 1');
+                testConn.release();
+                break;
+            } catch (error) {
+                retries--;
+                if (retries === 0) throw error;
+                console.log(`⚠️  Database connection failed, retrying... (${retries} attempts left)`);
+                await new Promise(resolve => setTimeout(resolve, 3000));
+            }
+        }
 
         // Create tables if they don't exist
         await createTables();
@@ -124,11 +194,15 @@ async function initializeDatabase() {
         console.error('❌ Database initialization error:', error.message);
         console.log('💡 Troubleshooting tips:');
         console.log('   - Make sure MySQL server is running');
-        console.log('   - Check database credentials in .env file');
-        console.log('   - Verify MySQL port (default: 3306)');
+        console.log('   - Check database credentials in environment variables');
+        console.log('   - Verify MySQL port');
         console.log('   - Ensure MySQL user has proper permissions');
         
-        // Don't retry, just return false
+        if (isRender) {
+            console.log('   - On Render: Use external MySQL service like PlanetScale');
+            console.log('   - Add DB credentials as environment variables in Render');
+        }
+        
         return false;
     }
 }
@@ -146,7 +220,9 @@ async function createTables() {
                 password_hash VARCHAR(255) NOT NULL,
                 role ENUM('user', 'admin') DEFAULT 'user',
                 is_approved BOOLEAN DEFAULT FALSE,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                INDEX idx_email (email),
+                INDEX idx_approved (is_approved)
             )
         `);
 
@@ -162,7 +238,11 @@ async function createTables() {
                 is_public BOOLEAN DEFAULT FALSE,
                 created_by INT,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE CASCADE
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE CASCADE,
+                INDEX idx_type (type),
+                INDEX idx_public (is_public),
+                INDEX idx_created_at (created_at)
             )
         `);
 
@@ -177,14 +257,17 @@ async function createTables() {
                 message TEXT NOT NULL,
                 status ENUM('pending', 'read', 'responded') DEFAULT 'pending',
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL
+                FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL,
+                INDEX idx_status (status),
+                INDEX idx_created_at (created_at),
+                INDEX idx_email (email)
             )
         `);
 
         // Check if admin user exists, if not create one
-        const [adminUsers] = await connection.execute('SELECT id FROM users WHERE role = "admin"');
+        const [adminUsers] = await connection.execute('SELECT id FROM users WHERE role = "admin" LIMIT 1');
         if (adminUsers.length === 0) {
-            const hashedPassword = await hash('admin123', 10);
+            const hashedPassword = await hash('admin123', 12);
             await connection.execute(
                 'INSERT INTO users (username, email, password_hash, role, is_approved) VALUES (?, ?, ?, ?, ?)',
                 ['admin', 'Wisdomadiele57@gmail.com', hashedPassword, 'admin', true]
@@ -192,6 +275,9 @@ async function createTables() {
             console.log('✅ Default admin user created');
             console.log('📧 Admin email: Wisdomadiele57@gmail.com');
             console.log('🔑 Admin password: admin123');
+            if (process.env.NODE_ENV === 'production') {
+                console.log('🚨 SECURITY: Change default admin password immediately!');
+            }
         }
 
         console.log('✅ All tables created/verified successfully');
@@ -203,7 +289,7 @@ async function createTables() {
     }
 }
 
-// File upload configuration
+// File upload configuration with production considerations
 const storage = multer.diskStorage({
     destination: (req, file, cb) => {
         cb(null, uploadsDir);
@@ -216,7 +302,10 @@ const storage = multer.diskStorage({
 
 const upload = multer({
     storage: storage,
-    limits: { fileSize: 10 * 1024 * 1024 }, // 10MB
+    limits: { 
+        fileSize: 10 * 1024 * 1024, // 10MB
+        files: 5 // Limit number of files
+    },
     fileFilter: (req, file, cb) => {
         const allowedTypes = /jpeg|jpg|png|gif|mp4|avi|mov|pdf|doc|docx/;
         const fileExtname = allowedTypes.test(extname(file.originalname).toLowerCase());
@@ -230,6 +319,12 @@ const upload = multer({
     }
 });
 
+// JWT configuration for production
+const JWT_SECRET = process.env.JWT_SECRET || 'spiritual_center_secret_2024_production_fallback';
+if (process.env.NODE_ENV === 'production' && !process.env.JWT_SECRET) {
+    console.warn('⚠️  WARNING: Using default JWT secret in production! Set JWT_SECRET environment variable.');
+}
+
 // JWT middleware
 const authenticateToken = (req, res, next) => {
     const authHeader = req.headers['authorization'];
@@ -239,7 +334,7 @@ const authenticateToken = (req, res, next) => {
         return res.status(401).json({ error: 'Access token required' });
     }
 
-    verify(token, process.env.JWT_SECRET || 'spiritual_center_secret_2024', (err, user) => {
+    verify(token, JWT_SECRET, (err, user) => {
         if (err) {
             return res.status(403).json({ error: 'Invalid or expired token' });
         }
@@ -259,22 +354,53 @@ const requireAdmin = (req, res, next) => {
 // Database connection middleware
 const requireDatabase = (req, res, next) => {
     if (!pool) {
-        return res.status(503).json({ error: 'Database not available. Please try again later.' });
+        return res.status(503).json({ 
+            error: 'Database not available. Please try again later.',
+            code: 'DATABASE_UNAVAILABLE'
+        });
     }
     next();
 };
 
+// Request logging middleware for production
+app.use((req, res, next) => {
+    if (process.env.NODE_ENV === 'production') {
+        console.log(`${new Date().toISOString()} - ${req.method} ${req.path} - ${req.ip}`);
+    }
+    next();
+});
+
 // Routes
 
-// Health check route
-app.get('/health', (req, res) => {
-    res.json({ 
+// Health check route with detailed info
+app.get('/health', async (req, res) => {
+    const health = {
         status: 'OK',
         timestamp: new Date().toISOString(),
         uptime: process.uptime(),
+        environment: process.env.NODE_ENV || 'development',
+        platform: isRender ? 'Render' : 'Local',
         database: pool ? 'Connected' : 'Disconnected',
-        environment: process.env.NODE_ENV || 'development'
-    });
+        memory: process.memoryUsage(),
+        version: '1.0.0'
+    };
+
+    // Test database connection if pool exists
+    if (pool) {
+        try {
+            const connection = await pool.getConnection();
+            await connection.execute('SELECT 1');
+            connection.release();
+            health.database = 'Healthy';
+        } catch (error) {
+            health.database = 'Unhealthy';
+            health.dbError = error.message;
+            health.status = 'Degraded';
+        }
+    }
+
+    const statusCode = health.status === 'OK' ? 200 : 503;
+    res.status(statusCode).json(health);
 });
 
 // Test routes
@@ -283,23 +409,33 @@ app.get('/api/test', (req, res) => {
         message: 'API is working!',
         timestamp: new Date().toISOString(),
         environment: process.env.NODE_ENV || 'development',
-        version: '1.0.0'
+        platform: isRender ? 'Render' : 'Local',
+        version: '1.0.0',
+        database: {
+            host: dbConfig.host,
+            database: dbConfig.database,
+            connected: !!pool
+        }
     });
 });
 
 app.get('/api/test-db', requireDatabase, async (req, res) => {
     try {
         const connection = await pool.getConnection();
-        const [rows] = await connection.execute('SELECT 1 as test');
+        const [rows] = await connection.execute('SELECT 1 as test, NOW() as time');
         connection.release();
         res.json({ 
             message: 'Database connection successful', 
             data: rows,
-            pool: true
+            pool: true,
+            timestamp: new Date().toISOString()
         });
     } catch (error) {
         console.error('Database test error:', error);
-        res.status(500).json({ error: 'Database connection failed: ' + error.message });
+        res.status(500).json({ 
+            error: 'Database connection failed: ' + error.message,
+            code: 'DATABASE_ERROR'
+        });
     }
 });
 
@@ -319,6 +455,12 @@ app.post('/api/register', requireDatabase, async (req, res) => {
             return res.status(400).json({ error: 'Password must be at least 6 characters long' });
         }
 
+        // Email validation
+        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+        if (!emailRegex.test(email)) {
+            return res.status(400).json({ error: 'Please provide a valid email address' });
+        }
+
         connection = await pool.getConnection();
 
         const [existing] = await connection.execute(
@@ -330,7 +472,7 @@ app.post('/api/register', requireDatabase, async (req, res) => {
             return res.status(400).json({ error: 'User already exists with this email or username' });
         }
 
-        const hashedPassword = await hash(password, 10);
+        const hashedPassword = await hash(password, 12);
 
         const [result] = await connection.execute(
             'INSERT INTO users (username, email, password_hash, is_approved) VALUES (?, ?, ?, ?)',
@@ -391,8 +533,8 @@ app.post('/api/login', requireDatabase, async (req, res) => {
                 email: user.email, 
                 role: user.role || 'user'
             },
-            process.env.JWT_SECRET || 'spiritual_center_secret_2024',
-            { expiresIn: '24h' }
+            JWT_SECRET,
+            { expiresIn: process.env.NODE_ENV === 'production' ? '7d' : '24h' }
         );
 
         console.log('Login successful for user:', user.email, 'Role:', user.role);
@@ -446,7 +588,7 @@ app.get('/api/content/public', requireDatabase, async (req, res) => {
             LEFT JOIN users u ON c.created_by = u.id 
             WHERE c.is_public = TRUE
             ORDER BY c.created_at DESC
-            LIMIT 20
+            LIMIT 50
         `);
 
         res.json(content);
@@ -700,7 +842,13 @@ app.use((error, req, res, next) => {
         }
     }
     console.error('Unhandled error:', error);
-    res.status(500).json({ error: 'Something went wrong!' });
+    
+    // Don't leak error details in production
+    const message = process.env.NODE_ENV === 'production' 
+        ? 'Something went wrong!' 
+        : error.message;
+    
+    res.status(500).json({ error: message });
 });
 
 // 404 handler for API routes
@@ -710,9 +858,32 @@ app.use('/api/*', (req, res) => {
 
 const PORT = process.env.PORT || 5000;
 
+// Graceful shutdown
+process.on('SIGTERM', async () => {
+    console.log('🔄 SIGTERM received, starting graceful shutdown');
+    if (pool) {
+        await pool.end();
+        console.log('✅ Database pool closed');
+    }
+    process.exit(0);
+});
+
+process.on('SIGINT', async () => {
+    console.log('🔄 SIGINT received, starting graceful shutdown');
+    if (pool) {
+        await pool.end();
+        console.log('✅ Database pool closed');
+    }
+    process.exit(0);
+});
+
 // Initialize database and start server
 async function startServer() {
     console.log('🚀 Starting Spiritual Center Server...');
+    console.log('📊 Environment:', process.env.NODE_ENV || 'development');
+    console.log('🏗️  Platform:', isRender ? 'Render' : 'Local');
+    console.log('🔧 Port:', PORT);
+    console.log('🗄️ Database Host:', dbConfig.host);
     
     // Initialize database (but don't block server start)
     initializeDatabase().then(success => {
@@ -731,7 +902,18 @@ async function startServer() {
         console.log(`🔍 Health Check: http://localhost:${PORT}/health`);
         console.log(`🗄️ Test DB: http://localhost:${PORT}/api/test-db`);
         console.log(`📁 Uploads directory: ${uploadsDir}`);
-        console.log(`💡 Make sure MySQL is running and database credentials are correct`);
+        
+        if (isRender) {
+            console.log('🎯 Render Deployment Ready!');
+            console.log('💡 Add these environment variables in Render:');
+            console.log('   - NODE_ENV=production');
+            console.log('   - JWT_SECRET=your-secure-secret-here');
+            console.log('   - DB_HOST=your-mysql-host');
+            console.log('   - DB_USER=your-mysql-user');
+            console.log('   - DB_PASSWORD=your-mysql-password');
+            console.log('   - DB_NAME=spiritual_center');
+        }
+        
         console.log(`👤 Default Admin: Wisdomadiele57@gmail.com / admin123`);
     });
 }
