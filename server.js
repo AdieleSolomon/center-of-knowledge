@@ -106,10 +106,10 @@ app.use('/uploads', express.static(uploadsDir));
 const dbConfig = {
     host: process.env.MYSQLHOST || process.env.DB_HOST || 'localhost',
     user: process.env.MYSQLUSER || process.env.DB_USER || 'root',
-    password: process.env.MYSQLPASSWORD || process.env.DB_PASSWORD || '',
+    password: process.env.MYSQLPASSWORD || process.env.DB_PASSWORD || 'cnpsqefXfZeOkcZUJXOSAUOuVbkAWNgy',
     database: process.env.MYSQLDATABASE || process.env.DB_NAME || 'railway',
     port: process.env.MYSQLPORT || process.env.DB_PORT || 3306,
-    url: process.env.DB_URL || '',
+    url: process.env.DB_URL || 'mysql://root:cnpsqefXfZeOkcZUJXOSAUOuVbkAWNgy@mysql.railway.internal:3306/railway',
     ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
     connectTimeout: 60000,
     acquireTimeout: 60000,
