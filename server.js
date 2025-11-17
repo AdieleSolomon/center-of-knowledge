@@ -66,13 +66,15 @@ if (!existsSync(uploadsDir)) {
 }
 
 // CORS configuration for Vercel frontend
-// CORS configuration for Vercel frontend
 const allowedOrigins = process.env.NODE_ENV === 'production' 
     ? [
-        'https://spiritualcenter-pt8asmr5b-solomon-adoles-projects.vercel.app',
+        'https://spiritualcenter-pt8asmr5b-solomon-adeles-projects.vercel.app',
         'https://spiritual-center.vercel.app',
         'https://spiritualcenter-*.vercel.app',
-        'https://*.vercel.app'
+        'https://*.vercel.app',
+        // Add these to catch all Vercel subdomains
+        /https:\/\/spiritualcenter-.*\.vercel\.app$/,
+        /https:\/\/.*\.vercel\.app$/
     ].filter(Boolean)
     : ['http://localhost:3000', 'http://localhost:5000', 'http://localhost:3001'];
 
@@ -81,11 +83,24 @@ app.use(cors({
         // Allow requests with no origin (like mobile apps or curl requests)
         if (!origin) return callback(null, true);
         
-        if (allowedOrigins.indexOf(origin) === -1) {
+        // Check if origin matches any allowed origins or patterns
+        const isAllowed = allowedOrigins.some(allowed => {
+            if (typeof allowed === 'string') {
+                return origin === allowed;
+            } else if (allowed instanceof RegExp) {
+                return allowed.test(origin);
+            }
+            return false;
+        });
+        
+        if (!isAllowed) {
             const msg = 'The CORS policy for this site does not allow access from the specified Origin.';
             console.log('🚫 CORS blocked origin:', origin);
+            console.log('📋 Allowed origins:', allowedOrigins);
             return callback(new Error(msg), false);
         }
+        
+        console.log('✅ CORS allowed origin:', origin);
         return callback(null, true);
     },
     credentials: true,
