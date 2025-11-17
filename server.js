@@ -66,12 +66,14 @@ if (!existsSync(uploadsDir)) {
 }
 
 // CORS configuration for Vercel frontend
+// CORS configuration for Vercel frontend
 const allowedOrigins = process.env.NODE_ENV === 'production' 
     ? [
-        'https://spiritualcenter.vercel.app',
-        'https://spiritualcenter-git-main-solomon-adieles-projects.vercel.app',
-        process.env.FRONTEND_URL
-        ].filter(Boolean)
+        'https://spiritualcenter-pt8asmr5b-solomon-adoles-projects.vercel.app',
+        'https://spiritual-center.vercel.app',
+        'https://spiritualcenter-*.vercel.app',
+        'https://*.vercel.app'
+    ].filter(Boolean)
     : ['http://localhost:3000', 'http://localhost:5000', 'http://localhost:3001'];
 
 app.use(cors({
