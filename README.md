@@ -16,3 +16,24 @@ mysql -u root -p
 
 # Create database
 CREATE DATABASE spiritual_center;
+
+
+# git commands
+# Check what's changed
+git status
+
+# Add all changes
+git add .
+
+# Commit
+git commit -m "preparing for Render deployment"
+
+# Push
+git push origin main
+
+
+
+git status
+git add .
+git commit -m "preparing for Render deployment"
+git push origin main
