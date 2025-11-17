@@ -1947,7 +1947,9 @@
                 debugLog('Testing backend connection to:', `${API_BASE}/test`);
                 
                 const controller = new AbortController();
-                const timeoutId = setTimeout(() => controller.abort(), 5000); // 5 second timeout
+                const isDev = (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
+                const timeoutMs = isDev ? 5000 : 15000;
+                const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
                 
                 const response = await fetch(`${API_BASE}/test`, {
                     method: 'GET',
