@@ -1,13 +1,12 @@
 {
     "name": "spiritual-center-backend",
     "version": "1.0.0",
-    "description": "Backend for Spiritual Center Website",
+    "description": "Backend API for Spiritual Center",
     "main": "server.js",
     "type": "module",
     "scripts": {
         "start": "node server.js",
-        "dev": "nodemon server.js",
-        "setup": "node -e \"console.log('Make sure to create the database and update .env file')\""
+        "dev": "nodemon server.js"
     },
     "dependencies": {
         "bcryptjs": "^2.4.3",
@@ -23,15 +22,6 @@
     "devDependencies": {
         "nodemon": "^3.0.1"
     },
-    "keywords": [
-        "spiritual",
-        "center",
-        "api",
-        "nodejs",
-        "express"
-    ],
-    "author": "Spiritual Center",
-    "license": "MIT",
     "engines": {
         "node": ">=18.0.0"
     }

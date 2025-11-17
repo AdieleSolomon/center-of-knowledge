@@ -1,7 +1,6 @@
-# render.yaml
 services:
   - type: web
-    name: spiritual-center
+    name: spiritual-center-api
     env: node
     plan: free
     buildCommand: npm install
@@ -11,7 +10,9 @@ services:
         value: production
       - key: JWT_SECRET
         generateValue: true
+      - key: RENDER
+        value: true
     disk:
-      name: uploads
-      mountPath: /opt/render/project/src/uploads
-      sizeGB: 1
+      - name: uploads
+        mountPath: /opt/render/project/src/uploads
+        sizeGB: 1

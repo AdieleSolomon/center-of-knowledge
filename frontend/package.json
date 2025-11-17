@@ -1,0 +1,12 @@
+{
+    "name": "spiritual-center-frontend",
+    "version": "1.0.0",
+    "description": "Frontend for Spiritual Center",
+    "scripts": {
+        "dev": "live-server --port=3000",
+        "build": "echo 'No build process for static site'"
+    },
+    "devDependencies": {
+        "live-server": "^1.2.2"
+    }
+}

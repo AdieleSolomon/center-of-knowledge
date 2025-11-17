@@ -2,7 +2,9 @@
 
 ## Prerequisites
 - Node.js (v16 or higher)
-- MySQL Server
+- MySQL Server // deploy to railway.app
+- backend // deploy to render.com
+- frontend // deploy to vercel.com
 - npm or yarn
 
 ## Installation Steps

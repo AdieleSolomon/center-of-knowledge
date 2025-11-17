@@ -1,8 +1,8 @@
 // Spiritual-center/public/js/script.js
 // Enhanced JavaScript for Spiritual Center Web Application
-// Dynamic API Base: use same-origin when served by Node, fallback to localhost:5000 for Apache
-        let API_BASE = (window.location.port === '5000' ? '/api' : 'http://localhost:5000/api');
-        console.log('🔧 API Base URL:', API_BASE);
+// Use the configured API base
+let API_BASE = window.API_BASE;
+console.log('🔧 API Base URL:', API_BASE);
 
         // Global state
         let currentUser = null;

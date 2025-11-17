@@ -25,8 +25,8 @@ const app = express();
 // Render-specific configuration
 const isRender = process.env.RENDER === 'true';
 const uploadsDir = isRender 
-  ? '/opt/render/project/src/uploads' 
-  : join(__dirname, 'uploads');
+    ? '/opt/render/project/src/uploads' 
+    : join(__dirname, 'uploads');
 
 console.log('🔧 Environment:', process.env.NODE_ENV || 'development');
 console.log('🏗️  Platform:', isRender ? 'Render' : 'Local');
@@ -43,28 +43,19 @@ process.on('unhandledRejection', (reason, promise) => {
     process.exit(1);
 });
 
-// Security middleware for production
+// Security middleware
 app.use(helmet({
     crossOriginResourcePolicy: { policy: "cross-origin" },
-    contentSecurityPolicy: {
-        directives: {
-            defaultSrc: ["'self'"],
-            styleSrc: ["'self'", "'unsafe-inline'", "https://cdnjs.cloudflare.com"],
-            fontSrc: ["'self'", "https://cdnjs.cloudflare.com"],
-            scriptSrc: ["'self'", "'unsafe-inline'"],
-            imgSrc: ["'self'", "data:", "https:", "http:"],
-            connectSrc: ["'self'"]
-        }
-    }
+    contentSecurityPolicy: false
 }));
 
-// Rate limiting - stricter for production
+// Rate limiting
 const limiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: process.env.NODE_ENV === 'production' ? 200 : 1000,
-  message: 'Too many requests from this IP, please try again later.',
-  standardHeaders: true,
-  legacyHeaders: false
+  windowMs: 15 * 60 * 1000,
+    max: process.env.NODE_ENV === 'production' ? 200 : 1000,
+    message: 'Too many requests from this IP, please try again later.',
+    standardHeaders: true,
+    legacyHeaders: false
 });
 app.use(limiter);
 
@@ -74,13 +65,13 @@ if (!existsSync(uploadsDir)) {
     console.log('✅ Created uploads directory:', uploadsDir);
 }
 
-// CORS configuration for production
+// CORS configuration for Vercel frontend
 const allowedOrigins = process.env.NODE_ENV === 'production' 
     ? [
-        'https://spiritual-center.onrender.com',
-        'https://spiritual-center.com',
-        'https://www.spiritual-center.com'
-      ].filter(Boolean)
+        'https://your-app-name.vercel.app',
+        'https://spiritual-center.vercel.app',
+        process.env.FRONTEND_URL
+        ].filter(Boolean)
     : ['http://localhost:3000', 'http://localhost:5000', 'http://localhost:3001'];
 
 app.use(cors({
@@ -108,20 +99,17 @@ app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 app.use('/uploads', express.static(uploadsDir));
 
-// Serve static files from public directory
-app.use(express.static(join(__dirname, 'public'), {
-    maxAge: process.env.NODE_ENV === 'production' ? '1d' : '0',
-    etag: true,
-    lastModified: true
-}));
+// Remove static frontend serving since frontend is on Vercel
+// app.use(express.static(join(__dirname, 'public')));
 
-// Database configuration for Render (compatible with external MySQL services)
+// Database configuration for Railway MySQL
 const dbConfig = {
-    host: process.env.DB_HOST || process.env.MYSQL_HOST || 'localhost',
-    user: process.env.DB_USER || process.env.MYSQL_USER || 'root',
-    password: process.env.DB_PASSWORD || process.env.MYSQL_PASSWORD || '',
-    database: process.env.DB_NAME || process.env.MYSQL_DATABASE || 'spiritual_center',
-    port: process.env.DB_PORT || process.env.MYSQL_PORT || 3306,
+    host: process.env.MYSQLHOST || process.env.DB_HOST || 'localhost',
+    user: process.env.MYSQLUSER || process.env.DB_USER || 'root',
+    password: process.env.MYSQLPASSWORD || process.env.DB_PASSWORD || '',
+    database: process.env.MYSQLDATABASE || process.env.DB_NAME || 'railway',
+    port: process.env.MYSQLPORT || process.env.DB_PORT || 3306,
+    url: process.env.DB_URL || '',
     ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
     connectTimeout: 60000,
     acquireTimeout: 60000,
@@ -193,15 +181,9 @@ async function initializeDatabase() {
     } catch (error) {
         console.error('❌ Database initialization error:', error.message);
         console.log('💡 Troubleshooting tips:');
-        console.log('   - Make sure MySQL server is running');
-        console.log('   - Check database credentials in environment variables');
-        console.log('   - Verify MySQL port');
-        console.log('   - Ensure MySQL user has proper permissions');
-        
-        if (isRender) {
-            console.log('   - On Render: Use external MySQL service like PlanetScale');
-            console.log('   - Add DB credentials as environment variables in Render');
-        }
+        console.log('   - Check Railway MySQL connection details');
+        console.log('   - Verify environment variables in Render');
+        console.log('   - Ensure MySQL is running on Railway');
         
         return false;
     }
@@ -289,7 +271,7 @@ async function createTables() {
     }
 }
 
-// File upload configuration with production considerations
+// File upload configuration
 const storage = multer.diskStorage({
     destination: (req, file, cb) => {
         cb(null, uploadsDir);
@@ -303,8 +285,8 @@ const storage = multer.diskStorage({
 const upload = multer({
     storage: storage,
     limits: { 
-        fileSize: 10 * 1024 * 1024, // 10MB
-        files: 5 // Limit number of files
+        fileSize: 10 * 1024 * 1024,
+        files: 5
     },
     fileFilter: (req, file, cb) => {
         const allowedTypes = /jpeg|jpg|png|gif|mp4|avi|mov|pdf|doc|docx/;
@@ -319,7 +301,7 @@ const upload = multer({
     }
 });
 
-// JWT configuration for production
+// JWT configuration
 const JWT_SECRET = process.env.JWT_SECRET || 'spiritual_center_secret_2024_production_fallback';
 if (process.env.NODE_ENV === 'production' && !process.env.JWT_SECRET) {
     console.warn('⚠️  WARNING: Using default JWT secret in production! Set JWT_SECRET environment variable.');
@@ -362,7 +344,7 @@ const requireDatabase = (req, res, next) => {
     next();
 };
 
-// Request logging middleware for production
+// Request logging middleware
 app.use((req, res, next) => {
     if (process.env.NODE_ENV === 'production') {
         console.log(`${new Date().toISOString()} - ${req.method} ${req.path} - ${req.ip}`);
@@ -370,9 +352,11 @@ app.use((req, res, next) => {
     next();
 });
 
-// Routes
+// =============================================
+// COMPLETE API ROUTES
+// =============================================
 
-// Health check route with detailed info
+// Health check
 app.get('/health', async (req, res) => {
     const health = {
         status: 'OK',
@@ -385,7 +369,6 @@ app.get('/health', async (req, res) => {
         version: '1.0.0'
     };
 
-    // Test database connection if pool exists
     if (pool) {
         try {
             const connection = await pool.getConnection();
@@ -403,7 +386,7 @@ app.get('/health', async (req, res) => {
     res.status(statusCode).json(health);
 });
 
-// Test routes
+// Test route
 app.get('/api/test', (req, res) => {
     res.json({ 
         message: 'API is working!',
@@ -419,6 +402,7 @@ app.get('/api/test', (req, res) => {
     });
 });
 
+// Test database route
 app.get('/api/test-db', requireDatabase, async (req, res) => {
     try {
         const connection = await pool.getConnection();
@@ -556,6 +540,29 @@ app.post('/api/login', requireDatabase, async (req, res) => {
     }
 });
 
+// Get user profile
+app.get('/api/profile', requireDatabase, authenticateToken, async (req, res) => {
+    let connection;
+    try {
+        connection = await pool.getConnection();
+        const [users] = await connection.execute(
+            'SELECT id, username, email, role, is_approved, created_at FROM users WHERE id = ?',
+            [req.user.id]
+        );
+
+        if (users.length === 0) {
+            return res.status(404).json({ error: 'User not found' });
+        }
+
+        res.json(users[0]);
+    } catch (error) {
+        console.error('Get profile error:', error);
+        res.status(500).json({ error: 'Failed to load profile' });
+    } finally {
+        if (connection) connection.release();
+    }
+});
+
 // Get all content (requires authentication)
 app.get('/api/content', requireDatabase, authenticateToken, async (req, res) => {
     let connection;
@@ -677,6 +684,21 @@ app.put('/api/users/:id/approve', requireDatabase, authenticateToken, requireAdm
     }
 });
 
+// Delete user (admin only)
+app.delete('/api/users/:id', requireDatabase, authenticateToken, requireAdmin, async (req, res) => {
+    let connection;
+    try {
+        connection = await pool.getConnection();
+        await connection.execute('DELETE FROM users WHERE id = ?', [req.params.id]);
+        res.json({ message: 'User deleted successfully' });
+    } catch (error) {
+        console.error('Delete user error:', error);
+        res.status(500).json({ error: 'Failed to delete user' });
+    } finally {
+        if (connection) connection.release();
+    }
+});
+
 // Prayer request submission
 app.post('/api/prayer-requests', requireDatabase, async (req, res) => {
     let connection;
@@ -758,7 +780,7 @@ app.put('/api/prayer-requests/:id/status', requireDatabase, authenticateToken, r
     }
 });
 
-// Add missing routes that frontend expects
+// Mark prayer request as read (admin only)
 app.put('/api/prayer-requests/:id/read', requireDatabase, authenticateToken, requireAdmin, async (req, res) => {
     let connection;
     try {
@@ -777,21 +799,7 @@ app.put('/api/prayer-requests/:id/read', requireDatabase, authenticateToken, req
     }
 });
 
-// Add missing DELETE routes
-app.delete('/api/users/:id', requireDatabase, authenticateToken, requireAdmin, async (req, res) => {
-    let connection;
-    try {
-        connection = await pool.getConnection();
-        await connection.execute('DELETE FROM users WHERE id = ?', [req.params.id]);
-        res.json({ message: 'User deleted successfully' });
-    } catch (error) {
-        console.error('Delete user error:', error);
-        res.status(500).json({ error: 'Failed to delete user' });
-    } finally {
-        if (connection) connection.release();
-    }
-});
-
+// Delete prayer request (admin only)
 app.delete('/api/prayer-requests/:id', requireDatabase, authenticateToken, requireAdmin, async (req, res) => {
     let connection;
     try {
@@ -806,32 +814,89 @@ app.delete('/api/prayer-requests/:id', requireDatabase, authenticateToken, requi
     }
 });
 
-// Get user profile
-app.get('/api/profile', requireDatabase, authenticateToken, async (req, res) => {
+// Update content (admin only)
+app.put('/api/content/:id', requireDatabase, authenticateToken, requireAdmin, async (req, res) => {
     let connection;
     try {
-        connection = await pool.getConnection();
-        const [users] = await connection.execute(
-            'SELECT id, username, email, role, is_approved, created_at FROM users WHERE id = ?',
-            [req.user.id]
-        );
-
-        if (users.length === 0) {
-            return res.status(404).json({ error: 'User not found' });
+        const { title, description, is_public } = req.body;
+        
+        if (!title || !description) {
+            return res.status(400).json({ error: 'Title and description are required' });
         }
 
-        res.json(users[0]);
+        connection = await pool.getConnection();
+        await connection.execute(
+            'UPDATE content SET title = ?, description = ?, is_public = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
+            [title, description, is_public === 'true', req.params.id]
+        );
+
+        res.json({ message: 'Content updated successfully' });
     } catch (error) {
-        console.error('Get profile error:', error);
-        res.status(500).json({ error: 'Failed to load profile' });
+        console.error('Update content error:', error);
+        res.status(500).json({ error: 'Failed to update content' });
     } finally {
         if (connection) connection.release();
     }
 });
 
-// Serve frontend for all other routes
-app.get('*', (req, res) => {
-    res.sendFile(join(__dirname, 'public', 'index.html'));
+// Delete content (admin only)
+app.delete('/api/content/:id', requireDatabase, authenticateToken, requireAdmin, async (req, res) => {
+    let connection;
+    try {
+        connection = await pool.getConnection();
+        await connection.execute('DELETE FROM content WHERE id = ?', [req.params.id]);
+        res.json({ message: 'Content deleted successfully' });
+    } catch (error) {
+        console.error('Delete content error:', error);
+        res.status(500).json({ error: 'Failed to delete content' });
+    } finally {
+        if (connection) connection.release();
+    }
+});
+
+// Get content by ID
+app.get('/api/content/:id', requireDatabase, authenticateToken, async (req, res) => {
+    let connection;
+    try {
+        connection = await pool.getConnection();
+        const [content] = await connection.execute(`
+            SELECT c.*, u.username as author 
+            FROM content c 
+            LEFT JOIN users u ON c.created_by = u.id 
+            WHERE c.id = ?
+        `, [req.params.id]);
+
+        if (content.length === 0) {
+            return res.status(404).json({ error: 'Content not found' });
+        }
+
+        res.json(content[0]);
+    } catch (error) {
+        console.error('Get content by ID error:', error);
+        res.status(500).json({ error: 'Failed to load content' });
+    } finally {
+        if (connection) connection.release();
+    }
+});
+
+// Root endpoint
+app.get('/', (req, res) => {
+    res.json({ 
+        message: 'Spiritual Center Backend API',
+        version: '1.0.0',
+        endpoints: {
+            health: '/health',
+            test: '/api/test',
+            register: '/api/register',
+            login: '/api/login',
+            profile: '/api/profile',
+            content: '/api/content',
+            'public-content': '/api/content/public',
+            'prayer-requests': '/api/prayer-requests',
+            users: '/api/users (admin only)'
+        },
+        documentation: 'See README for complete API documentation'
+    });
 });
 
 // Error handling middleware
@@ -843,7 +908,6 @@ app.use((error, req, res, next) => {
     }
     console.error('Unhandled error:', error);
     
-    // Don't leak error details in production
     const message = process.env.NODE_ENV === 'production' 
         ? 'Something went wrong!' 
         : error.message;
@@ -879,39 +943,28 @@ process.on('SIGINT', async () => {
 
 // Initialize database and start server
 async function startServer() {
-    console.log('🚀 Starting Spiritual Center Server...');
+    console.log('🚀 Starting Spiritual Center Backend API...');
     console.log('📊 Environment:', process.env.NODE_ENV || 'development');
     console.log('🏗️  Platform:', isRender ? 'Render' : 'Local');
     console.log('🔧 Port:', PORT);
     console.log('🗄️ Database Host:', dbConfig.host);
     
-    // Initialize database (but don't block server start)
+    // Initialize database
     initializeDatabase().then(success => {
         if (success) {
             console.log('✅ Database initialized successfully');
         } else {
             console.log('⚠️  Database not available, but server is running');
-            console.log('💡 Some features may not work until database is connected');
         }
     });
 
     app.listen(PORT, '0.0.0.0', () => {
-        console.log(`✅ Server running on port ${PORT}`);
+        console.log(`✅ Backend API running on port ${PORT}`);
         console.log(`📚 API Base URL: http://localhost:${PORT}/api`);
-        console.log(`🌐 Frontend URL: http://localhost:${PORT}`);
         console.log(`🔍 Health Check: http://localhost:${PORT}/health`);
-        console.log(`🗄️ Test DB: http://localhost:${PORT}/api/test-db`);
-        console.log(`📁 Uploads directory: ${uploadsDir}`);
         
         if (isRender) {
             console.log('🎯 Render Deployment Ready!');
-            console.log('💡 Add these environment variables in Render:');
-            console.log('   - NODE_ENV=production');
-            console.log('   - JWT_SECRET=your-secure-secret-here');
-            console.log('   - DB_HOST=your-mysql-host');
-            console.log('   - DB_USER=your-mysql-user');
-            console.log('   - DB_PASSWORD=your-mysql-password');
-            console.log('   - DB_NAME=spiritual_center');
         }
         
         console.log(`👤 Default Admin: Wisdomadiele57@gmail.com / admin123`);
