@@ -3011,5 +3011,19 @@
         });
     });
 </script>
+<script>
+(function() {
+  function setHeaderHeightVar() {
+    const header = document.querySelector('header');
+    if (!header) return;
+    const h = header.getBoundingClientRect().height;
+    document.documentElement.style.setProperty('--header-h', Math.round(h) + 'px');
+  }
+  window.addEventListener('load', setHeaderHeightVar);
+  window.addEventListener('resize', setHeaderHeightVar);
+  window.addEventListener('orientationchange', setHeaderHeightVar);
+  setHeaderHeightVar();
+})();
+</script>
 </body>
 </html>
