@@ -154,20 +154,17 @@ console.log('🔧 Database Configuration:', {
 async function testMySQLConnection() {
     try {
         console.log('🔄 Testing MySQL connection...');
-        const connection = await createConnection(process.env.MYSQL_URL || dbConfig);
+        const url = process.env.MYSQL_URL;
+        const useUrl = typeof url === 'string' && /^mysql:\/\//.test(url);
+        const connection = await createConnection(useUrl ? url : dbConfig);
         
-        // Test connection
-
-        console.log("✅ Connected to Railway MySQL");
-        
-        // Test query
         const [rows] = await connection.execute('SELECT 1 as test_value');
         console.log('✅ MySQL test query successful:', rows);
         
         await connection.end();
         return true;
     } catch (err) {
-        console.error("❌ MySQL Connection Error:", err);
+        console.error('❌ MySQL Connection Error:', err);
         return false;
     }
 }
@@ -478,8 +475,9 @@ app.get('/api/test-db', requireDatabase, async (req, res) => {
 // ADDED: Simple MySQL connection test route
 app.get('/api/test-mysql', async (req, res) => {
     try {
-        const connection = await createConnection(process.env.MYSQL_URL || dbConfig);
-        await connection.connect();
+        const url = process.env.MYSQL_URL;
+        const useUrl = typeof url === 'string' && /^mysql:\/\//.test(url);
+        const connection = await createConnection(useUrl ? url : dbConfig);
         const [rows] = await connection.execute('SELECT 1 as test_value, NOW() as current_time');
         await connection.end();
         
