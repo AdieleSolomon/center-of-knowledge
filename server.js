@@ -125,41 +125,20 @@ app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 app.use('/uploads', express.static(uploadsDir));
 
-// FIXED: Enhanced Railway MySQL configuration - ALIGNED WITH YOUR .ENV
+// FIXED: UPDATED Railway MySQL configuration - USING PUBLIC NETWORKING FROM YOUR SCREENSHOT
 const getDbConfig = () => {
-    // Priority 1: Use MYSQL_URL from Railway (if available)
-    if (process.env.MYSQL_URL) {
-        console.log('🔧 Using MYSQL_URL for database connection');
-        return {
-            connectionString: process.env.MYSQL_URL,
-            ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false
-        };
-    }
-    
-    // Priority 2: Use individual Railway environment variables FROM YOUR .ENV
-    if (process.env.MYSQLHOST && process.env.MYSQLUSER && process.env.MYSQLPASSWORD) {
-        console.log('🔧 Using Railway MySQL individual variables from .env');
-        return {
-            host: process.env.MYSQLHOST, // mysql.railway.internal
-            user: process.env.MYSQLUSER, // root
-            password: process.env.MYSQLPASSWORD, // ShwaedPFnJeSXSqlkGKxFrIwAHtETXBl
-            database: process.env.MYSQLDATABASE || process.env.MYSQL_DATABASE || 'railway', // railway
-            port: parseInt(process.env.MYSQLPORT) || 3306, // 3306
-            ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
-            connectTimeout: 60000,
-            acquireTimeout: 60000,
-            timeout: 60000,
-        };
-    }
-    
-    // Fallback: Local development
-    console.log('🔧 Using local development database config');
+    // Priority 1: Use Public Networking connection (from your Railway screenshot)
+    console.log('🔧 Using Public Networking for Railway MySQL');
     return {
-        host: 'localhost',
-        user: 'root',
-        password: '',
-        database: 'railway',
-        port: 3306
+        host: 'crossover.proxy.rfwy.net', // PUBLIC host from your screenshot
+        user: process.env.MYSQLUSER || 'root',
+        password: process.env.MYSQLPASSWORD || 'ShwaedPFnJeSXSqlkGKxFrIwAHtETXBl',
+        database: process.env.MYSQLDATABASE || process.env.MYSQL_DATABASE || 'railway',
+        port: 22317, // PUBLIC port from your screenshot (not 3306)
+        ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
+        connectTimeout: 60000,
+        acquireTimeout: 60000,
+        timeout: 60000,
     };
 };
 
@@ -168,13 +147,14 @@ const dbConfig = getDbConfig();
 // FIXED: Better environment variable logging
 console.log('🔧 Database Configuration:', {
     environment: process.env.NODE_ENV || 'development',
-    platform: 'Render + Railway MySQL',
-    host: dbConfig.host || 'From MYSQL_URL',
-    database: dbConfig.database || 'From MYSQL_URL',
-    port: dbConfig.port || 'From MYSQL_URL'
+    platform: 'Render + Railway MySQL (Public Networking)',
+    host: dbConfig.host,
+    database: dbConfig.database,
+    port: dbConfig.port,
+    user: dbConfig.user
 });
 
-// FIXED: Debug environment variables (aligned with your actual .env)
+// FIXED: Debug environment variables
 console.log('🔍 Environment Variables Check:', {
     NODE_ENV: process.env.NODE_ENV || 'Not set',
     MYSQLHOST: process.env.MYSQLHOST ? 'Set' : 'Not set',
@@ -188,28 +168,18 @@ console.log('🔍 Environment Variables Check:', {
     RENDER: process.env.RENDER ? 'Set' : 'Not set'
 });
 
-// FIXED: Test MySQL connection with better error handling
+// FIXED: Test MySQL connection with PUBLIC networking
 async function testMySQLConnection() {
     try {
-        console.log('🔄 Testing MySQL connection...');
+        console.log('🔄 Testing MySQL connection via Public Networking...');
+        console.log('🔧 Connection details:', {
+            host: dbConfig.host,
+            user: dbConfig.user,
+            database: dbConfig.database,
+            port: dbConfig.port
+        });
         
-        let connection;
-        
-        if (dbConfig.connectionString) {
-            // Use connection string (Railway MYSQL_URL)
-            console.log('🔧 Using MYSQL_URL connection string');
-            connection = await createConnection(dbConfig.connectionString);
-        } else {
-            // Use individual config
-            console.log('🔧 Using individual database config');
-            console.log('🔧 Connection details:', {
-                host: dbConfig.host,
-                user: dbConfig.user,
-                database: dbConfig.database,
-                port: dbConfig.port
-            });
-            connection = await createConnection(dbConfig);
-        }
+        const connection = await createConnection(dbConfig);
         
         const [rows] = await connection.execute('SELECT 1 as test_value, NOW() as current_time, DATABASE() as db_name, USER() as current_user');
         console.log('✅ MySQL test query successful:', rows);
@@ -219,13 +189,20 @@ async function testMySQLConnection() {
     } catch (err) {
         console.error('❌ MySQL Connection Error:', err.message);
         console.error('🔍 Connection details:', {
-            host: dbConfig.host || 'From MYSQL_URL',
-            database: dbConfig.database || 'From MYSQL_URL',
-            port: dbConfig.port || 'From MYSQL_URL',
+            host: dbConfig.host,
+            database: dbConfig.database,
+            port: dbConfig.port,
             errorCode: err.code,
             errno: err.errno,
             sqlState: err.sqlState
         });
+        
+        console.log('💡 Troubleshooting tips:');
+        console.log('   1. Check if Railway MySQL service is running');
+        console.log('   2. Verify the public hostname: crossover.proxy.rfwy.net');
+        console.log('   3. Verify the public port: 22317');
+        console.log('   4. Check MySQL credentials in Railway variables');
+        
         return false;
     }
 }
@@ -235,43 +212,24 @@ let pool;
 
 async function initializeDatabase() {
     try {
-        console.log('🔄 Initializing database connection...');
+        console.log('🔄 Initializing database connection via Public Networking...');
         
         // Test connection first
         const connectionTest = await testMySQLConnection();
         if (!connectionTest) {
             console.log('❌ Initial MySQL connection test failed');
-            console.log('💡 Troubleshooting tips:');
-            console.log('   1. Check if Railway MySQL service is running');
-            console.log('   2. Verify MYSQLHOST, MYSQLUSER, MYSQLPASSWORD in Render environment variables');
-            console.log('   3. Ensure MySQL credentials are correct');
-            console.log('   4. Check if MySQL port 3306 is accessible');
             throw new Error('MySQL connection failed');
         }
         
-        // Create connection pool
-        if (dbConfig.connectionString) {
-            // Use connection string for pool
-            pool = createPool({
-                uri: dbConfig.connectionString,
-                waitForConnections: true,
-                connectionLimit: 10,
-                queueLimit: 0,
-                acquireTimeout: 60000,
-                timeout: 60000,
-                ssl: dbConfig.ssl
-            });
-        } else {
-            // Use individual config for pool
-            pool = createPool({
-                ...dbConfig,
-                waitForConnections: true,
-                connectionLimit: 10,
-                queueLimit: 0,
-                acquireTimeout: 60000,
-                timeout: 60000
-            });
-        }
+        // Create connection pool with PUBLIC networking
+        pool = createPool({
+            ...dbConfig,
+            waitForConnections: true,
+            connectionLimit: 10,
+            queueLimit: 0,
+            acquireTimeout: 60000,
+            timeout: 60000
+        });
 
         // Test pool connection with retry logic
         let retries = 3;
@@ -302,7 +260,7 @@ async function initializeDatabase() {
     } catch (error) {
         console.error('❌ Database initialization error:', error.message);
         console.log('💡 The server will start in limited mode (database operations will fail)');
-        console.log('💡 Please check your Railway MySQL connection in Render environment variables');
+        console.log('💡 Please check your Railway MySQL Public Networking connection');
         return false;
     }
 }
@@ -397,19 +355,23 @@ app.get('/health', async (req, res) => {
         environment: process.env.NODE_ENV || 'development',
         platform: isRender ? 'Render' : 'Local',
         database: 'Unknown',
-        version: '1.0.0'
+        version: '1.0.0',
+        mysqlConnection: 'Testing...'
     };
 
     try {
         if (pool) {
             const [result] = await pool.execute('SELECT 1 as test_value');
             healthCheck.database = 'Connected';
+            healthCheck.mysqlConnection = 'Healthy';
         } else {
             healthCheck.database = 'No pool';
+            healthCheck.mysqlConnection = 'No connection pool';
             healthCheck.status = 'Degraded';
         }
     } catch (error) {
         healthCheck.database = 'Error: ' + error.message;
+        healthCheck.mysqlConnection = 'Failed: ' + error.message;
         healthCheck.status = 'Degraded';
     }
 
@@ -430,11 +392,11 @@ app.get('/test', (req, res) => {
 app.get('/debug', (req, res) => {
     res.json({
         environment: process.env.NODE_ENV,
-        mysqlHost: process.env.MYSQLHOST,
-        mysqlUser: process.env.MYSQLUSER,
-        mysqlDatabase: process.env.MYSQLDATABASE || process.env.MYSQL_DATABASE,
-        mysqlPort: process.env.MYSQLPORT,
-        mysqlUrl: process.env.MYSQL_URL ? 'Set (hidden)' : 'Not set',
+        mysqlHost: dbConfig.host,
+        mysqlUser: dbConfig.user,
+        mysqlDatabase: dbConfig.database,
+        mysqlPort: dbConfig.port,
+        mysqlConnection: 'Public Networking',
         platform: isRender ? 'Render' : 'Local',
         timestamp: new Date().toISOString(),
         render: isRender
@@ -443,21 +405,15 @@ app.get('/debug', (req, res) => {
 
 app.get('/api/test-mysql', async (req, res) => {
     try {
-        let connection;
-        
-        if (dbConfig.connectionString) {
-            connection = await createConnection(dbConfig.connectionString);
-        } else {
-            connection = await createConnection(dbConfig);
-        }
+        const connection = await createConnection(dbConfig);
         
         const [rows] = await connection.execute('SELECT 1 as test_value, NOW() as current_time, DATABASE() as db_name, USER() as user');
         await connection.end();
         
         res.json({ 
-            message: 'MySQL connection successful',
+            message: 'MySQL connection successful via Public Networking',
             data: rows,
-            connection: 'single',
+            connection: 'public-networking',
             timestamp: new Date().toISOString()
         });
     } catch (error) {
@@ -466,8 +422,9 @@ app.get('/api/test-mysql', async (req, res) => {
             error: 'MySQL connection failed: ' + error.message,
             code: 'MYSQL_CONNECTION_ERROR',
             details: {
-                usingMysqlUrl: !!dbConfig.connectionString,
-                hasMysqlHost: !!process.env.MYSQLHOST,
+                host: dbConfig.host,
+                port: dbConfig.port,
+                database: dbConfig.database,
                 errorCode: error.code,
                 errno: error.errno
             }
@@ -860,8 +817,9 @@ async function startServer() {
     console.log('📊 Environment:', process.env.NODE_ENV || 'development');
     console.log('🏗️  Platform:', isRender ? 'Render' : 'Local');
     console.log('🔧 Port:', PORT);
-    console.log('🗄️ Database Config:', dbConfig.connectionString ? 'Using MYSQL_URL' : 'Using individual config');
+    console.log('🗄️ Database Config: Public Networking');
     console.log('🔑 JWT Secret:', process.env.JWT_SECRET ? 'Set' : 'Not set');
+    console.log('🌐 MySQL Host: crossover.proxy.rfwy.net:22317');
     
     // Initialize database (but don't block server startup)
     initializeDatabase().then(success => {
@@ -870,7 +828,7 @@ async function startServer() {
         } else {
             console.log('⚠️  Database not available, but server is running');
             console.log('💡 The server will start but database operations will fail');
-            console.log('💡 Check your Railway MySQL connection in Render environment variables');
+            console.log('💡 Check your Railway MySQL Public Networking connection');
         }
     });
 
