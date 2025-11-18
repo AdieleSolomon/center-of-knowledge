@@ -30,6 +30,10 @@
         }
 
         body {
+            padding-top: 120px;
+        }
+
+        body {
             font-family: 'Montserrat', sans-serif;
             background: linear-gradient(135deg, #5D4037 0%, #8D6E63 100%);
             color: var(--text);
@@ -322,11 +326,11 @@
             background-size: cover;
             background-position: center;
             color: var(--light);
-            padding: 180px 16px 100px;
+            padding: 160px 16px 90px;
             text-align: center;
             position: relative;
             overflow: visible;
-            min-height: 100vh;
+            min-height: 100svh;
         }
 
         .hero h1 {
@@ -1326,6 +1330,7 @@
         /* Mobile Styles */
         @media (max-width: 768px) {
             html { scroll-padding-top: 100px; }
+            body { padding-top: 100px; }
             h1 {
                 font-size: 2.2rem;
             }
@@ -1335,8 +1340,8 @@
             }
 
             .hero {
-                padding: 140px 12px 80px;
-                min-height: 100vh;
+                padding: 130px 12px 70px;
+                min-height: 100svh;
                 background-position: center;
             }
 
@@ -1386,6 +1391,7 @@
 
         @media (max-width: 480px) {
             html { scroll-padding-top: 90px; }
+            body { padding-top: 90px; }
             h1 {
                 font-size: 1.8rem;
             }
@@ -1395,8 +1401,8 @@
             }
 
             .hero {
-                padding: 120px 12px 60px;
-                min-height: 100vh;
+                padding: 110px 12px 55px;
+                min-height: 100svh;
                 background-position: center;
             }
 
