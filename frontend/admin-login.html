@@ -1,0 +1,422 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="api-base-url" content="" />
+    <title>Admin Login - Spiritual Center</title>
+    <script src="./app-config.js"></script>
+    <link
+      rel="stylesheet"
+      href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" />
+    <style>
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+
+      body {
+        font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        min-height: 100vh;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        padding: 20px;
+      }
+
+      .login-container {
+        background: white;
+        border-radius: 10px;
+        box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
+        width: 100%;
+        max-width: 400px;
+        padding: 40px;
+        animation: slideUp 0.5s ease;
+      }
+
+      @keyframes slideUp {
+        from {
+          opacity: 0;
+          transform: translateY(30px);
+        }
+        to {
+          opacity: 1;
+          transform: translateY(0);
+        }
+      }
+
+      .login-header {
+        text-align: center;
+        margin-bottom: 30px;
+      }
+
+      .login-icon {
+        font-size: 48px;
+        color: #667eea;
+        margin-bottom: 15px;
+      }
+
+      .login-header h1 {
+        font-size: 28px;
+        color: #333;
+        margin-bottom: 10px;
+      }
+
+      .login-header p {
+        color: #666;
+        font-size: 14px;
+      }
+
+      .form-group {
+        margin-bottom: 20px;
+      }
+
+      label {
+        display: block;
+        margin-bottom: 8px;
+        color: #333;
+        font-weight: 600;
+        font-size: 14px;
+      }
+
+      input[type="email"],
+      input[type="password"] {
+        width: 100%;
+        padding: 12px 15px;
+        border: 2px solid #e0e0e0;
+        border-radius: 5px;
+        font-size: 14px;
+        transition: border-color 0.3s;
+        font-family: inherit;
+      }
+
+      input[type="email"]:focus,
+      input[type="password"]:focus {
+        outline: none;
+        border-color: #667eea;
+        box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+      }
+
+      .remember-forgot {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 25px;
+        font-size: 13px;
+      }
+
+      .remember-forgot a {
+        color: #667eea;
+        text-decoration: none;
+        transition: color 0.3s;
+      }
+
+      .remember-forgot a:hover {
+        color: #764ba2;
+      }
+
+      .login-btn {
+        width: 100%;
+        padding: 12px;
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        color: white;
+        border: none;
+        border-radius: 5px;
+        font-size: 16px;
+        font-weight: 600;
+        cursor: pointer;
+        transition:
+          transform 0.3s,
+          box-shadow 0.3s;
+      }
+
+      .login-btn:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 5px 20px rgba(102, 126, 234, 0.4);
+      }
+
+      .login-btn:active {
+        transform: translateY(0);
+      }
+
+      .login-btn.loading {
+        opacity: 0.7;
+        pointer-events: none;
+      }
+
+      .error-message {
+        background: #fee;
+        color: #c33;
+        padding: 12px;
+        border-radius: 5px;
+        margin-bottom: 20px;
+        display: none;
+        font-size: 14px;
+        border-left: 4px solid #c33;
+      }
+
+      .error-message.show {
+        display: block;
+        animation: shake 0.5s;
+      }
+
+      @keyframes shake {
+        0%,
+        100% {
+          transform: translateX(0);
+        }
+        25% {
+          transform: translateX(-10px);
+        }
+        75% {
+          transform: translateX(10px);
+        }
+      }
+
+      .success-message {
+        background: #efe;
+        color: #3c3;
+        padding: 12px;
+        border-radius: 5px;
+        margin-bottom: 20px;
+        display: none;
+        font-size: 14px;
+        border-left: 4px solid #3c3;
+      }
+
+      .success-message.show {
+        display: block;
+        animation: slideUp 0.5s;
+      }
+
+      .back-link {
+        text-align: center;
+        margin-top: 20px;
+      }
+
+      .back-link a {
+        color: #667eea;
+        text-decoration: none;
+        font-size: 14px;
+        transition: color 0.3s;
+      }
+
+      .back-link a:hover {
+        color: #764ba2;
+      }
+
+      .loading-spinner {
+        display: none;
+        width: 20px;
+        height: 20px;
+        border: 3px solid rgba(255, 255, 255, 0.3);
+        border-top-color: white;
+        border-radius: 50%;
+        animation: spin 0.8s linear infinite;
+        margin-right: 10px;
+      }
+
+      @keyframes spin {
+        to {
+          transform: rotate(360deg);
+        }
+      }
+
+      .login-btn span {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+
+      @media (max-width: 480px) {
+        .login-container {
+          padding: 30px 20px;
+        }
+
+        .login-header h1 {
+          font-size: 24px;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="login-container">
+      <div class="login-header">
+        <div class="login-icon">
+          <i class="fas fa-lock"></i>
+        </div>
+        <h1>Admin Login</h1>
+        <p>Spiritual Center Management</p>
+      </div>
+
+      <div class="error-message" id="errorMessage"></div>
+      <div class="success-message" id="successMessage"></div>
+
+      <form id="loginForm">
+        <div class="form-group">
+          <label for="email">Email Address</label>
+          <input
+            type="email"
+            id="email"
+            name="email"
+            placeholder="admin@example.com"
+            required
+            autocomplete="email" />
+        </div>
+
+        <div class="form-group">
+          <label for="password">Password</label>
+          <input
+            type="password"
+            id="password"
+            name="password"
+            placeholder="Enter your password"
+            required
+            autocomplete="current-password" />
+        </div>
+
+        <div class="remember-forgot">
+          <label> <input type="checkbox" name="remember" /> Remember me </label>
+        </div>
+
+        <button type="submit" class="login-btn">
+          <span>
+            <div class="loading-spinner" id="spinner"></div>
+            <span id="btnText">Login</span>
+          </span>
+        </button>
+      </form>
+
+      <div class="back-link">
+        <a href="index.html">← Back to Home</a>
+      </div>
+    </div>
+
+    <script>
+      const isLocalHost =
+        window.location.hostname === "localhost" ||
+        window.location.hostname === "127.0.0.1";
+      const appConfigApiBase = window.APP_CONFIG?.API_BASE?.trim?.() || "";
+      const configuredApiBase = document
+        .querySelector('meta[name="api-base-url"]')
+        ?.getAttribute("content")
+        ?.trim();
+      const API_BASE =
+        appConfigApiBase ||
+        configuredApiBase ||
+        (isLocalHost ? "http://localhost:5501/api" : `${window.location.origin}/api`);
+
+      const loginForm = document.getElementById("loginForm");
+      const errorMessage = document.getElementById("errorMessage");
+      const successMessage = document.getElementById("successMessage");
+      const spinner = document.getElementById("spinner");
+      const btnText = document.getElementById("btnText");
+      const loginBtn = document.querySelector(".login-btn");
+
+      loginForm.addEventListener("submit", async (e) => {
+        e.preventDefault();
+
+        const email = document.getElementById("email").value.trim();
+        const password = document.getElementById("password").value;
+        const remember = document.querySelector(
+          'input[name="remember"]',
+        ).checked;
+
+        // Validation
+        if (!email || !password) {
+          showError("Please fill in all fields");
+          return;
+        }
+
+        // Show loading state
+        spinner.style.display = "inline-block";
+        btnText.textContent = "Logging in...";
+        loginBtn.disabled = true;
+
+        try {
+          const response = await fetch(`${API_BASE}/auth/login`, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({ email, password }),
+          });
+
+          let data;
+          try {
+            data = await response.json();
+          } catch (jsonError) {
+            // Response is not valid JSON
+            const text = await response.text();
+            throw new Error(
+              `Server error (invalid response): ${text.substring(0, 100)}`,
+            );
+          }
+
+          if (!response.ok) {
+            throw new Error(data.error || "Login failed");
+          }
+
+          // Check if user is admin (data.user.role from API response)
+          const userRole = data.user?.role || data.role;
+          if (userRole !== "admin") {
+            throw new Error("You do not have admin access");
+          }
+
+          // Store token
+          localStorage.setItem("adminToken", data.token);
+          localStorage.setItem("adminEmail", email);
+
+          if (remember) {
+            localStorage.setItem("rememberEmail", email);
+          }
+
+          showSuccess("Login successful! Redirecting...");
+
+          // Redirect to admin panel
+          setTimeout(() => {
+            window.location.href = "admin-dashboard.html";
+          }, 1500);
+        } catch (error) {
+          showError(error.message || "An error occurred. Please try again.");
+        } finally {
+          spinner.style.display = "none";
+          btnText.textContent = "Login";
+          loginBtn.disabled = false;
+        }
+      });
+
+      function showError(message) {
+        errorMessage.textContent = message;
+        errorMessage.classList.add("show");
+        successMessage.classList.remove("show");
+        setTimeout(() => {
+          errorMessage.classList.remove("show");
+        }, 5000);
+      }
+
+      function showSuccess(message) {
+        successMessage.textContent = message;
+        successMessage.classList.add("show");
+        errorMessage.classList.remove("show");
+      }
+
+      // Check if user is already logged in
+      window.addEventListener("load", () => {
+        const token = localStorage.getItem("adminToken");
+        if (token) {
+          window.location.href = "admin-dashboard.html";
+        }
+
+        // Auto-fill email if remembered
+        const rememberEmail = localStorage.getItem("rememberEmail");
+        if (rememberEmail) {
+          document.getElementById("email").value = rememberEmail;
+          document.querySelector('input[name="remember"]').checked = true;
+        }
+      });
+    </script>
+  </body>
+</html>
