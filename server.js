@@ -3,6 +3,7 @@ import { createPool as createMySqlPool } from "mysql2/promise";
 import pg from "pg";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
+import crypto from "crypto";
 import multer from "multer";
 import { join, extname } from "path";
 import cors from "cors";
@@ -50,6 +51,50 @@ const parseBoolean = (value, defaultValue = false) => {
 
   return ["1", "true", "yes", "on"].includes(String(value).toLowerCase());
 };
+
+const JWT_SECRET = process.env.JWT_SECRET || "spiritual-center-secret-key-2024";
+const PASSWORD_RESET_TOKEN_TTL_MINUTES = Number(
+  process.env.PASSWORD_RESET_TOKEN_TTL_MINUTES || 30,
+);
+const ALLOW_PLAINTEXT_RESET_TOKEN = parseBoolean(
+  process.env.ALLOW_PLAINTEXT_RESET_TOKEN,
+  true,
+);
+
+const normalizeEmail = (value = "") => String(value).trim().toLowerCase();
+const normalizeUsername = (value = "") => String(value).trim();
+const isValidEmail = (value = "") =>
+  /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(value).trim());
+const isStrongPassword = (value = "") => String(value).length >= 8;
+
+const hashRecoveryToken = (rawToken) =>
+  crypto.createHash("sha256").update(String(rawToken)).digest("hex");
+
+const createRecoveryToken = () => {
+  const rawToken = crypto.randomBytes(24).toString("hex");
+  const hashedToken = hashRecoveryToken(rawToken);
+  const expiresAt = new Date(
+    Date.now() + PASSWORD_RESET_TOKEN_TTL_MINUTES * 60 * 1000,
+  );
+
+  return {
+    rawToken,
+    hashedToken,
+    expiresAt,
+  };
+};
+
+const signAuthToken = (user) =>
+  jwt.sign(
+    {
+      userId: user.id,
+      email: user.email,
+      username: user.username,
+      role: user.role,
+    },
+    JWT_SECRET,
+    { expiresIn: "24h" },
+  );
 
 const parseCsvEnv = (value = "") =>
   String(value)
@@ -296,10 +341,7 @@ const authenticateToken = (req, res, next) => {
   }
 
   try {
-    const decoded = jwt.verify(
-      token,
-      process.env.JWT_SECRET || "spiritual-center-secret-key-2024",
-    );
+    const decoded = jwt.verify(token, JWT_SECRET);
     req.user = decoded;
     next();
   } catch (error) {
@@ -382,6 +424,8 @@ const postgresSchemaStatements = [
       username VARCHAR(100) NOT NULL UNIQUE,
       email VARCHAR(255) NOT NULL UNIQUE,
       password VARCHAR(255) NOT NULL,
+      reset_password_token VARCHAR(128),
+      reset_password_expires TIMESTAMP,
       role VARCHAR(20) DEFAULT 'user' CHECK (role IN ('user', 'admin')),
       is_approved BOOLEAN DEFAULT TRUE,
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -468,6 +512,38 @@ const postgresSchemaStatements = [
   "CREATE INDEX IF NOT EXISTS idx_settings_key ON settings (setting_key)",
 ];
 
+const ensureUserAuthColumns = async (connection) => {
+  if (IS_POSTGRES) {
+    await connection.execute(
+      "ALTER TABLE users ADD COLUMN IF NOT EXISTS reset_password_token VARCHAR(128)",
+    );
+    await connection.execute(
+      "ALTER TABLE users ADD COLUMN IF NOT EXISTS reset_password_expires TIMESTAMP",
+    );
+    return;
+  }
+
+  try {
+    await connection.execute(
+      "ALTER TABLE users ADD COLUMN reset_password_token VARCHAR(128) NULL",
+    );
+  } catch (error) {
+    if (error?.code !== "ER_DUP_FIELDNAME") {
+      throw error;
+    }
+  }
+
+  try {
+    await connection.execute(
+      "ALTER TABLE users ADD COLUMN reset_password_expires TIMESTAMP NULL",
+    );
+  } catch (error) {
+    if (error?.code !== "ER_DUP_FIELDNAME") {
+      throw error;
+    }
+  }
+};
+
 const initializePostgresDatabase = async () => {
   let connection;
 
@@ -478,6 +554,8 @@ const initializePostgresDatabase = async () => {
     for (const statement of postgresSchemaStatements) {
       await connection.execute(statement);
     }
+
+    await ensureUserAuthColumns(connection);
 
     const adminEmail =
       process.env.DEFAULT_ADMIN_EMAIL || "Wisdomadiele57@gmail.com";
@@ -554,6 +632,8 @@ const initializeDatabase = async () => {
         username VARCHAR(100) NOT NULL UNIQUE,
         email VARCHAR(255) NOT NULL UNIQUE,
         password VARCHAR(255) NOT NULL,
+        reset_password_token VARCHAR(128) NULL,
+        reset_password_expires TIMESTAMP NULL,
         role ENUM('user', 'admin') DEFAULT 'user',
         is_approved BOOLEAN DEFAULT TRUE,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -562,6 +642,8 @@ const initializeDatabase = async () => {
         INDEX idx_role (role)
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
     `);
+
+    await ensureUserAuthColumns(connection);
 
     // Materials table (simplified - using this as main content table)
     await connection.execute(`
@@ -1550,16 +1632,294 @@ app.delete("/api/notifications", authenticateToken, async (req, res) => {
 
 // ==================== AUTH ENDPOINTS ====================
 
+app.post("/api/auth/register", async (req, res) => {
+  try {
+    const { username, email, password, confirmPassword } = req.body;
+    const normalizedEmail = normalizeEmail(email);
+    const normalizedUsername = normalizeUsername(username);
+
+    if (!normalizedUsername || !normalizedEmail || !password) {
+      return res.status(400).json({
+        success: false,
+        error: "Username, email, and password are required",
+      });
+    }
+
+    if (normalizedUsername.length < 3 || normalizedUsername.length > 100) {
+      return res.status(400).json({
+        success: false,
+        error: "Username must be between 3 and 100 characters",
+      });
+    }
+
+    if (!isValidEmail(normalizedEmail)) {
+      return res.status(400).json({
+        success: false,
+        error: "Please provide a valid email address",
+      });
+    }
+
+    if (!isStrongPassword(password)) {
+      return res.status(400).json({
+        success: false,
+        error: "Password must be at least 8 characters long",
+      });
+    }
+
+    if (
+      typeof confirmPassword === "string" &&
+      confirmPassword.length > 0 &&
+      password !== confirmPassword
+    ) {
+      return res.status(400).json({
+        success: false,
+        error: "Password confirmation does not match",
+      });
+    }
+
+    const [existingUsers] = await pool.execute(
+      "SELECT id FROM users WHERE email = ? OR username = ? LIMIT 1",
+      [normalizedEmail, normalizedUsername],
+    );
+
+    if (existingUsers.length > 0) {
+      return res.status(409).json({
+        success: false,
+        error: "An account already exists with that email or username",
+      });
+    }
+
+    const passwordHash = await bcrypt.hash(password, 12);
+    const [insertResult] = await pool.execute(
+      "INSERT INTO users (username, email, password, role, is_approved) VALUES (?, ?, ?, ?, ?)",
+      [normalizedUsername, normalizedEmail, passwordHash, "user", true],
+    );
+
+    let userId = insertResult?.insertId || null;
+    if (!userId) {
+      const [createdUsers] = await pool.execute(
+        "SELECT id FROM users WHERE email = ? LIMIT 1",
+        [normalizedEmail],
+      );
+      userId = createdUsers[0]?.id || null;
+    }
+
+    const user = {
+      id: userId,
+      username: normalizedUsername,
+      email: normalizedEmail,
+      role: "user",
+      is_approved: true,
+    };
+
+    const token = signAuthToken(user);
+
+    await pool.execute(
+      "INSERT INTO analytics (event_type, event_data, user_id) VALUES (?, ?, ?)",
+      ["register", JSON.stringify({ method: "email_password" }), user.id],
+    );
+
+    res.status(201).json({
+      success: true,
+      message: "Registration successful",
+      token,
+      user,
+    });
+  } catch (error) {
+    if (error?.code === "ER_DUP_ENTRY" || error?.code === "23505") {
+      return res.status(409).json({
+        success: false,
+        error: "An account already exists with that email or username",
+      });
+    }
+
+    console.error("Register error:", error);
+    res.status(500).json({
+      success: false,
+      error: "Failed to create account",
+      details: error.message,
+    });
+  }
+});
+
+app.post("/api/auth/forgot-password", async (req, res) => {
+  try {
+    const normalizedEmail = normalizeEmail(req.body?.email);
+
+    if (!normalizedEmail || !isValidEmail(normalizedEmail)) {
+      return res.status(400).json({
+        success: false,
+        error: "Please provide a valid email address",
+      });
+    }
+
+    const [users] = await pool.execute(
+      "SELECT id, email FROM users WHERE email = ? LIMIT 1",
+      [normalizedEmail],
+    );
+
+    const genericResponse = {
+      success: true,
+      message:
+        "If the account exists, password recovery instructions have been generated.",
+    };
+
+    if (users.length === 0) {
+      return res.json(genericResponse);
+    }
+
+    const user = users[0];
+    const { rawToken, hashedToken, expiresAt } = createRecoveryToken();
+
+    await pool.execute(
+      "UPDATE users SET reset_password_token = ?, reset_password_expires = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+      [hashedToken, expiresAt, user.id],
+    );
+
+    await pool.execute(
+      "INSERT INTO analytics (event_type, event_data, user_id) VALUES (?, ?, ?)",
+      [
+        "password_reset_requested",
+        JSON.stringify({ channel: "self_service", email: normalizedEmail }),
+        user.id,
+      ],
+    );
+
+    if (ALLOW_PLAINTEXT_RESET_TOKEN) {
+      return res.json({
+        ...genericResponse,
+        recovery_code: rawToken,
+        expires_at: expiresAt.toISOString(),
+      });
+    }
+
+    return res.json(genericResponse);
+  } catch (error) {
+    console.error("Forgot password error:", error);
+    res.status(500).json({
+      success: false,
+      error: "Failed to process password recovery request",
+      details: error.message,
+    });
+  }
+});
+
+app.post("/api/auth/reset-password", async (req, res) => {
+  try {
+    const { email, recoveryCode, newPassword, confirmPassword } = req.body;
+    const normalizedEmail = normalizeEmail(email);
+
+    if (!normalizedEmail || !isValidEmail(normalizedEmail)) {
+      return res.status(400).json({
+        success: false,
+        error: "Please provide a valid email address",
+      });
+    }
+
+    if (!recoveryCode) {
+      return res.status(400).json({
+        success: false,
+        error: "Recovery code is required",
+      });
+    }
+
+    if (!isStrongPassword(newPassword)) {
+      return res.status(400).json({
+        success: false,
+        error: "New password must be at least 8 characters long",
+      });
+    }
+
+    if (newPassword !== confirmPassword) {
+      return res.status(400).json({
+        success: false,
+        error: "Password confirmation does not match",
+      });
+    }
+
+    const [users] = await pool.execute(
+      "SELECT id, username, email, role, is_approved, reset_password_token, reset_password_expires FROM users WHERE email = ? LIMIT 1",
+      [normalizedEmail],
+    );
+
+    if (users.length === 0) {
+      return res.status(400).json({
+        success: false,
+        error: "Invalid or expired recovery code",
+      });
+    }
+
+    const user = users[0];
+    const storedToken = user.reset_password_token;
+    const storedExpiry = user.reset_password_expires;
+    const hashedProvidedToken = hashRecoveryToken(recoveryCode);
+
+    if (!storedToken || !storedExpiry) {
+      return res.status(400).json({
+        success: false,
+        error: "Invalid or expired recovery code",
+      });
+    }
+
+    const expiryDate = new Date(storedExpiry);
+    const isExpired =
+      Number.isNaN(expiryDate.getTime()) || expiryDate.getTime() < Date.now();
+
+    if (isExpired || storedToken !== hashedProvidedToken) {
+      return res.status(400).json({
+        success: false,
+        error: "Invalid or expired recovery code",
+      });
+    }
+
+    const hashedPassword = await bcrypt.hash(newPassword, 12);
+
+    await pool.execute(
+      "UPDATE users SET password = ?, reset_password_token = NULL, reset_password_expires = NULL, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+      [hashedPassword, user.id],
+    );
+
+    await pool.execute(
+      "INSERT INTO analytics (event_type, event_data, user_id) VALUES (?, ?, ?)",
+      ["password_reset", JSON.stringify({ method: "recovery_code" }), user.id],
+    );
+
+    const authUser = {
+      id: user.id,
+      username: user.username,
+      email: user.email,
+      role: user.role,
+      is_approved: user.is_approved,
+    };
+    const token = signAuthToken(authUser);
+
+    res.json({
+      success: true,
+      message: "Password reset successful",
+      token,
+      user: authUser,
+    });
+  } catch (error) {
+    console.error("Reset password error:", error);
+    res.status(500).json({
+      success: false,
+      error: "Failed to reset password",
+      details: error.message,
+    });
+  }
+});
+
 app.post("/api/auth/login", async (req, res) => {
   try {
     const { email, password } = req.body;
+    const normalizedEmail = normalizeEmail(email);
 
-    if (!email || !password) {
+    if (!normalizedEmail || !password) {
       return res.status(400).json({ error: "Email and password are required" });
     }
 
     const [users] = await pool.execute("SELECT * FROM users WHERE email = ?", [
-      email,
+      normalizedEmail,
     ]);
 
     if (users.length === 0) {
@@ -1582,16 +1942,7 @@ app.post("/api/auth/login", async (req, res) => {
     }
 
     // Generate JWT token
-    const token = jwt.sign(
-      {
-        userId: user.id,
-        email: user.email,
-        username: user.username,
-        role: user.role,
-      },
-      process.env.JWT_SECRET || "spiritual-center-secret-key-2024",
-      { expiresIn: "24h" },
-    );
+    const token = signAuthToken(user);
 
     // Log login event
     await pool.execute(
@@ -1860,7 +2211,10 @@ app.get("/api/connection-test", (req, res) => {
       settings: "/api/settings",
       notifications: "/api/notifications",
       users: "/api/users",
-      auth: "/api/auth/login",
+      auth_login: "/api/auth/login",
+      auth_register: "/api/auth/register",
+      auth_forgot_password: "/api/auth/forgot-password",
+      auth_reset_password: "/api/auth/reset-password",
     },
   });
 });

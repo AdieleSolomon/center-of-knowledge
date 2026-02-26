@@ -1,6 +1,18 @@
+document.documentElement.classList.add("js");
+
 const App = (() => {
   const WHATSAPP_PHONE = "2349072560420";
   const CONTACT_EMAIL = "Wisdomadiele57@gmail.com";
+  const DEFAULT_MAP_QUERY = "Center of Knowledge and Spiritual Enrichment";
+
+  const getConfigString = (key) => {
+    const value = window.APP_CONFIG?.[key] ?? window.__APP_CONFIG__?.[key];
+    return typeof value === "string" ? value.trim() : "";
+  };
+
+  const GOOGLE_ANALYTICS_ID = getConfigString("GOOGLE_ANALYTICS_ID");
+  const GOOGLE_MAPS_EMBED_URL = getConfigString("GOOGLE_MAPS_EMBED_URL");
+  const GOOGLE_MAPS_DIRECTIONS_URL = getConfigString("GOOGLE_MAPS_DIRECTIONS_URL");
 
   const isLocalHost =
     window.location.hostname === "localhost" ||
@@ -32,6 +44,7 @@ const App = (() => {
   const state = {
     token: localStorage.getItem("authToken") || localStorage.getItem("adminToken"),
     user: null,
+    authMode: "login",
   };
 
   const fallbackResources = [
@@ -65,7 +78,7 @@ const App = (() => {
     header: document.getElementById("siteHeader"),
     navToggle: document.getElementById("navToggle"),
     mainNav: document.getElementById("mainNav"),
-    openAuthBtn: document.getElementById("openAuthBtn"),
+    openAuthBtns: Array.from(document.querySelectorAll("[data-open-auth]")),
     resourceLoginBtn: document.getElementById("resourceLoginBtn"),
     logoutBtn: document.getElementById("logoutBtn"),
     userBadge: document.getElementById("userBadge"),
@@ -75,11 +88,29 @@ const App = (() => {
     resourceGrid: document.getElementById("resourceGrid"),
     resourceNotice: document.getElementById("resourceNotice"),
     authModal: document.getElementById("authModal"),
+    authModalTitle: document.getElementById("authModalTitle"),
+    authModalSubtitle: document.getElementById("authModalSubtitle"),
+    authTabs: Array.from(document.querySelectorAll(".auth-tab")),
+    authModeButtons: Array.from(document.querySelectorAll("[data-auth-mode]")),
+    authViews: Array.from(document.querySelectorAll(".auth-view")),
     closeAuthBtn: document.getElementById("closeAuthBtn"),
     loginForm: document.getElementById("loginForm"),
     loginEmail: document.getElementById("loginEmail"),
     loginPassword: document.getElementById("loginPassword"),
     loginSubmitBtn: document.getElementById("loginSubmitBtn"),
+    registerForm: document.getElementById("registerForm"),
+    registerUsername: document.getElementById("registerUsername"),
+    registerEmail: document.getElementById("registerEmail"),
+    registerPassword: document.getElementById("registerPassword"),
+    registerConfirmPassword: document.getElementById("registerConfirmPassword"),
+    registerSubmitBtn: document.getElementById("registerSubmitBtn"),
+    recoverForm: document.getElementById("recoverForm"),
+    recoverEmail: document.getElementById("recoverEmail"),
+    recoverCode: document.getElementById("recoverCode"),
+    recoverPassword: document.getElementById("recoverPassword"),
+    recoverConfirmPassword: document.getElementById("recoverConfirmPassword"),
+    requestRecoveryBtn: document.getElementById("requestRecoveryBtn"),
+    recoverSubmitBtn: document.getElementById("recoverSubmitBtn"),
     authMessage: document.getElementById("authMessage"),
     prayerForm: document.getElementById("prayerForm"),
     prayerName: document.getElementById("prayerName"),
@@ -90,10 +121,14 @@ const App = (() => {
     contactEmail: document.getElementById("contactEmail"),
     contactSubject: document.getElementById("contactSubject"),
     contactMessage: document.getElementById("contactMessage"),
+    googleMapEmbed: document.getElementById("googleMapEmbed"),
+    googleDirectionsLink: document.getElementById("googleDirectionsLink"),
     year: document.getElementById("year"),
   };
 
   function init() {
+    setupGoogleAnalytics();
+    setupGoogleMap();
     setYear();
     setupScrollHeader();
     setupMobileNav();
@@ -104,6 +139,8 @@ const App = (() => {
     setupPrayerForm();
     setupContactForm();
     setupLoginForm();
+    setupRegisterForm();
+    setupRecoverForm();
 
     updateAuthUI();
     hydrateSession().finally(loadResources);
@@ -133,14 +170,39 @@ const App = (() => {
   function setupMobileNav() {
     if (!ui.navToggle || !ui.mainNav) return;
 
+    const closeMenu = () => {
+      ui.mainNav.classList.remove("open");
+      ui.navToggle.setAttribute("aria-expanded", "false");
+    };
+
+    ui.navToggle.setAttribute("aria-expanded", "false");
+    ui.navToggle.setAttribute("aria-controls", "mainNav");
+
     ui.navToggle.addEventListener("click", () => {
-      ui.mainNav.classList.toggle("open");
+      const isOpen = ui.mainNav.classList.toggle("open");
+      ui.navToggle.setAttribute("aria-expanded", String(isOpen));
     });
 
     ui.mainNav.querySelectorAll("a").forEach((link) => {
       link.addEventListener("click", () => {
-        ui.mainNav.classList.remove("open");
+        closeMenu();
+        trackEvent("nav_click", { label: link.textContent?.trim() || "navigation" });
       });
+    });
+
+    document.addEventListener("click", (event) => {
+      if (!ui.mainNav.classList.contains("open")) return;
+
+      const target = event.target;
+      if (ui.mainNav.contains(target) || ui.navToggle.contains(target)) return;
+
+      closeMenu();
+    });
+
+    window.addEventListener("resize", () => {
+      if (window.innerWidth > 900) {
+        closeMenu();
+      }
     });
   }
 
@@ -155,6 +217,10 @@ const App = (() => {
         return { link, section };
       })
       .filter(Boolean);
+
+    if (!sectionMap.length || !("IntersectionObserver" in window)) {
+      return;
+    }
 
     const observer = new IntersectionObserver(
       (entries) => {
@@ -180,6 +246,10 @@ const App = (() => {
   function setupRevealAnimations() {
     const targets = document.querySelectorAll("[data-reveal]:not(.revealed)");
     if (!targets.length) return;
+    if (!("IntersectionObserver" in window)) {
+      targets.forEach((item) => item.classList.add("revealed"));
+      return;
+    }
 
     const observer = new IntersectionObserver(
       (entries, obs) => {
@@ -204,10 +274,13 @@ const App = (() => {
   function setupModal() {
     if (!ui.authModal) return;
 
-    const open = () => {
+    const open = (mode = "login") => {
+      switchAuthMode(mode);
       ui.authModal.classList.add("open");
       ui.authModal.setAttribute("aria-hidden", "false");
-      ui.loginEmail?.focus();
+      ui.mainNav?.classList.remove("open");
+      ui.navToggle?.setAttribute("aria-expanded", "false");
+      focusAuthField();
     };
 
     const close = () => {
@@ -216,8 +289,21 @@ const App = (() => {
       setAuthMessage("");
     };
 
-    ui.openAuthBtn?.addEventListener("click", open);
-    ui.resourceLoginBtn?.addEventListener("click", open);
+    switchAuthMode("login");
+
+    ui.openAuthBtns.forEach((button) => {
+      button.addEventListener("click", () => {
+        open(button.dataset.openAuthMode || "login");
+      });
+    });
+    ui.resourceLoginBtn?.addEventListener("click", () => {
+      open("login");
+    });
+    ui.authModeButtons.forEach((button) => {
+      button.addEventListener("click", () => {
+        switchAuthMode(button.dataset.authMode || "login");
+      });
+    });
     ui.closeAuthBtn?.addEventListener("click", close);
 
     ui.authModal.addEventListener("click", (event) => {
@@ -240,6 +326,61 @@ const App = (() => {
     });
 
     ui.authModal.closeModal = close;
+    ui.authModal.openModal = open;
+  }
+
+  function switchAuthMode(mode = "login") {
+    const allowedModes = new Set(["login", "register", "recover"]);
+    const nextMode = allowedModes.has(mode) ? mode : "login";
+    state.authMode = nextMode;
+
+    const authText = {
+      login: {
+        title: "Member Sign-In",
+        subtitle: "Sign in to access synchronized ministry resources.",
+      },
+      register: {
+        title: "Create Member Account",
+        subtitle: "Register with your details to access members-only resources.",
+      },
+      recover: {
+        title: "Recover Password",
+        subtitle:
+          "Request a recovery code, then set a new password for your account.",
+      },
+    };
+
+    ui.authViews.forEach((view) => {
+      view.hidden = view.dataset.authView !== nextMode;
+    });
+
+    ui.authTabs.forEach((tab) => {
+      const active = tab.dataset.authMode === nextMode;
+      tab.classList.toggle("active", active);
+      tab.setAttribute("aria-selected", String(active));
+    });
+
+    if (ui.authModalTitle) {
+      ui.authModalTitle.textContent = authText[nextMode].title;
+    }
+    if (ui.authModalSubtitle) {
+      ui.authModalSubtitle.textContent = authText[nextMode].subtitle;
+    }
+
+    setAuthMessage("");
+    focusAuthField();
+  }
+
+  function focusAuthField() {
+    const focusByMode = {
+      login: ui.loginEmail,
+      register: ui.registerUsername,
+      recover: ui.recoverEmail,
+    };
+
+    requestAnimationFrame(() => {
+      focusByMode[state.authMode]?.focus?.();
+    });
   }
 
   function setupSessionButtons() {
@@ -251,7 +392,10 @@ const App = (() => {
             ? "Hello Pastor, I would like to book a counseling session."
             : "Hello Pastor, I would like to book a prayer session.";
 
-        openWhatsApp(message);
+        openWhatsApp(
+          message,
+          sessionType === "counseling" ? "counseling_session" : "prayer_session",
+        );
       });
     });
   }
@@ -279,7 +423,7 @@ const App = (() => {
         `Request: ${request}`,
       ].join("\n");
 
-      openWhatsApp(message);
+      openWhatsApp(message, "prayer_form");
 
       ui.prayerForm.reset();
       notify("Prayer request prepared on WhatsApp.", "success");
@@ -311,6 +455,7 @@ const App = (() => {
 
       const mailtoUrl = `mailto:${CONTACT_EMAIL}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
       window.location.href = mailtoUrl;
+      trackEvent("contact_email_prepare", { subject });
 
       ui.contactForm.reset();
       notify("Opening your email app to send this message.", "success");
@@ -356,6 +501,7 @@ const App = (() => {
 
         updateAuthUI();
         loadResources();
+        trackEvent("login_success", { method: "email_password" });
 
         setAuthMessage("Sign-in successful. Resource sync is now active.", false);
         notify("You are signed in successfully.", "success");
@@ -365,9 +511,201 @@ const App = (() => {
           ui.loginForm?.reset();
         }, 500);
       } catch (error) {
+        trackEvent("login_failed", {
+          reason: String(error.message || "unknown_error").slice(0, 120),
+        });
         setAuthMessage(error.message || "Login failed.", true);
       } finally {
         setAuthLoading(false);
+      }
+    });
+  }
+
+  function setupRegisterForm() {
+    if (!ui.registerForm) return;
+
+    ui.registerForm.addEventListener("submit", async (event) => {
+      event.preventDefault();
+
+      const username = ui.registerUsername?.value.trim();
+      const email = ui.registerEmail?.value.trim();
+      const password = ui.registerPassword?.value || "";
+      const confirmPassword = ui.registerConfirmPassword?.value || "";
+
+      if (!username || !email || !password || !confirmPassword) {
+        setAuthMessage("Please complete all registration fields.", true);
+        return;
+      }
+
+      if (password.length < 8) {
+        setAuthMessage("Password must be at least 8 characters long.", true);
+        return;
+      }
+
+      if (password !== confirmPassword) {
+        setAuthMessage("Password confirmation does not match.", true);
+        return;
+      }
+
+      setRegisterLoading(true);
+      setAuthMessage("");
+
+      try {
+        const response = await fetch(`${API_BASE}/auth/register`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            username,
+            email,
+            password,
+            confirmPassword,
+          }),
+        });
+
+        const data = await response.json();
+
+        if (!response.ok || !data?.token) {
+          throw new Error(data?.error || "Unable to create account.");
+        }
+
+        state.token = data.token;
+        state.user = data.user || null;
+        localStorage.setItem("authToken", data.token);
+
+        updateAuthUI();
+        loadResources();
+        notify("Registration successful. You are now signed in.", "success");
+        setAuthMessage("Account created successfully.", false);
+        trackEvent("register_success", { method: "email_password" });
+
+        setTimeout(() => {
+          ui.authModal?.closeModal?.();
+          ui.registerForm?.reset();
+        }, 500);
+      } catch (error) {
+        trackEvent("register_failed", {
+          reason: String(error.message || "unknown_error").slice(0, 120),
+        });
+        setAuthMessage(error.message || "Registration failed.", true);
+      } finally {
+        setRegisterLoading(false);
+      }
+    });
+  }
+
+  function setupRecoverForm() {
+    if (!ui.recoverForm) return;
+
+    ui.requestRecoveryBtn?.addEventListener("click", async () => {
+      const email = ui.recoverEmail?.value.trim();
+      if (!email) {
+        setAuthMessage("Enter your account email before requesting a code.", true);
+        return;
+      }
+
+      setRecoveryRequestLoading(true);
+      setAuthMessage("");
+
+      try {
+        const response = await fetch(`${API_BASE}/auth/forgot-password`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ email }),
+        });
+
+        const data = await response.json();
+
+        if (!response.ok) {
+          throw new Error(data?.error || "Unable to request recovery code.");
+        }
+
+        if (data?.recovery_code && ui.recoverCode) {
+          ui.recoverCode.value = data.recovery_code;
+          setAuthMessage(
+            "Recovery code generated. Use it now before it expires.",
+            false,
+          );
+        } else {
+          setAuthMessage(data?.message || "Recovery instructions have been sent.", false);
+        }
+      } catch (error) {
+        setAuthMessage(error.message || "Failed to request recovery code.", true);
+      } finally {
+        setRecoveryRequestLoading(false);
+      }
+    });
+
+    ui.recoverForm.addEventListener("submit", async (event) => {
+      event.preventDefault();
+
+      const email = ui.recoverEmail?.value.trim();
+      const recoveryCode = ui.recoverCode?.value.trim();
+      const newPassword = ui.recoverPassword?.value || "";
+      const confirmPassword = ui.recoverConfirmPassword?.value || "";
+
+      if (!email || !recoveryCode || !newPassword || !confirmPassword) {
+        setAuthMessage("Please complete all password recovery fields.", true);
+        return;
+      }
+
+      if (newPassword.length < 8) {
+        setAuthMessage("New password must be at least 8 characters long.", true);
+        return;
+      }
+
+      if (newPassword !== confirmPassword) {
+        setAuthMessage("Password confirmation does not match.", true);
+        return;
+      }
+
+      setRecoverSubmitLoading(true);
+      setAuthMessage("");
+
+      try {
+        const response = await fetch(`${API_BASE}/auth/reset-password`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            email,
+            recoveryCode,
+            newPassword,
+            confirmPassword,
+          }),
+        });
+
+        const data = await response.json();
+
+        if (!response.ok || !data?.token) {
+          throw new Error(data?.error || "Failed to reset password.");
+        }
+
+        state.token = data.token;
+        state.user = data.user || null;
+        localStorage.setItem("authToken", data.token);
+
+        updateAuthUI();
+        loadResources();
+        notify("Password reset successful. You are signed in.", "success");
+        setAuthMessage("Password reset successful.", false);
+        trackEvent("password_reset_success", { source: "self_service" });
+
+        setTimeout(() => {
+          ui.authModal?.closeModal?.();
+          ui.recoverForm?.reset();
+        }, 500);
+      } catch (error) {
+        trackEvent("password_reset_failed", {
+          reason: String(error.message || "unknown_error").slice(0, 120),
+        });
+        setAuthMessage(error.message || "Password reset failed.", true);
+      } finally {
+        setRecoverSubmitLoading(false);
       }
     });
   }
@@ -376,6 +714,30 @@ const App = (() => {
     if (!ui.loginSubmitBtn) return;
     ui.loginSubmitBtn.disabled = isLoading;
     ui.loginSubmitBtn.textContent = isLoading ? "Signing In..." : "Sign In";
+  }
+
+  function setRegisterLoading(isLoading) {
+    if (!ui.registerSubmitBtn) return;
+    ui.registerSubmitBtn.disabled = isLoading;
+    ui.registerSubmitBtn.textContent = isLoading
+      ? "Creating Account..."
+      : "Create Account";
+  }
+
+  function setRecoveryRequestLoading(isLoading) {
+    if (!ui.requestRecoveryBtn) return;
+    ui.requestRecoveryBtn.disabled = isLoading;
+    ui.requestRecoveryBtn.textContent = isLoading
+      ? "Generating Code..."
+      : "Request Recovery Code";
+  }
+
+  function setRecoverSubmitLoading(isLoading) {
+    if (!ui.recoverSubmitBtn) return;
+    ui.recoverSubmitBtn.disabled = isLoading;
+    ui.recoverSubmitBtn.textContent = isLoading
+      ? "Resetting Password..."
+      : "Reset Password";
   }
 
   function setAuthMessage(text, isError = false) {
@@ -435,9 +797,9 @@ const App = (() => {
       ui.resourceLoginBtn.hidden = loggedIn;
     }
 
-    if (ui.openAuthBtn) {
-      ui.openAuthBtn.hidden = loggedIn;
-    }
+    ui.openAuthBtns.forEach((button) => {
+      button.hidden = loggedIn;
+    });
 
     if (loggedIn) {
       const displayName = state.user.username || state.user.email || "Member";
@@ -543,7 +905,7 @@ const App = (() => {
             </div>
             <h3>${title}</h3>
             <p>${description}</p>
-            <a class="resource-link" href="${href}" ${targetAttr}>
+            <a class="resource-link" href="${href}" data-resource-title="${title}" ${targetAttr}>
               ${fromApi ? "Open Material" : "Preview"}
               <i class="fa-solid fa-arrow-right"></i>
             </a>
@@ -553,6 +915,14 @@ const App = (() => {
       .join("");
 
     setupRevealAnimations();
+    ui.resourceGrid.querySelectorAll(".resource-link").forEach((link) => {
+      link.addEventListener("click", () => {
+        trackEvent("resource_open", {
+          title: link.dataset.resourceTitle || "resource",
+          source: fromApi ? "api" : "fallback",
+        });
+      });
+    });
   }
 
   function setResourceNotice(text, tone = "") {
@@ -566,9 +936,63 @@ const App = (() => {
     if (tone === "success") ui.resourceNotice.classList.add("is-success");
   }
 
-  function openWhatsApp(message) {
+  function openWhatsApp(message, source = "direct") {
     const text = encodeURIComponent(message);
+    trackEvent("whatsapp_open", { source });
     window.open(`https://wa.me/${WHATSAPP_PHONE}?text=${text}`, "_blank");
+  }
+
+  function setupGoogleMap() {
+    if (!ui.googleMapEmbed && !ui.googleDirectionsLink) return;
+
+    const query = encodeURIComponent(DEFAULT_MAP_QUERY);
+    const embedUrl =
+      GOOGLE_MAPS_EMBED_URL ||
+      `https://www.google.com/maps?q=${query}&output=embed`;
+    const directionsUrl =
+      GOOGLE_MAPS_DIRECTIONS_URL ||
+      `https://www.google.com/maps/search/?api=1&query=${query}`;
+
+    if (ui.googleMapEmbed) {
+      ui.googleMapEmbed.src = embedUrl;
+    }
+
+    if (ui.googleDirectionsLink) {
+      ui.googleDirectionsLink.href = directionsUrl;
+      ui.googleDirectionsLink.addEventListener("click", () => {
+        trackEvent("google_maps_open", { source: "contact_section" });
+      });
+    }
+  }
+
+  function setupGoogleAnalytics() {
+    if (!GOOGLE_ANALYTICS_ID) return;
+
+    if (typeof window.gtag === "function") {
+      window.gtag("config", GOOGLE_ANALYTICS_ID, { anonymize_ip: true });
+      return;
+    }
+
+    const tagScript = document.createElement("script");
+    tagScript.async = true;
+    tagScript.src = `https://www.googletagmanager.com/gtag/js?id=${encodeURIComponent(GOOGLE_ANALYTICS_ID)}`;
+    document.head.appendChild(tagScript);
+
+    window.dataLayer = window.dataLayer || [];
+    window.gtag = function gtag() {
+      window.dataLayer.push(arguments);
+    };
+
+    window.gtag("js", new Date());
+    window.gtag("config", GOOGLE_ANALYTICS_ID, {
+      anonymize_ip: true,
+      transport_type: "beacon",
+    });
+  }
+
+  function trackEvent(eventName, params = {}) {
+    if (typeof window.gtag !== "function") return;
+    window.gtag("event", eventName, params);
   }
 
   function sanitize(value) {

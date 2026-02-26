@@ -4,6 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Center of Knowledge and Spiritual Enrichment | Youth Voice Edition</title>
+    <link rel="icon" type="image/svg+xml" href="./favicon.svg" />
     <meta
       name="description"
       content="A youth-friendly ministry experience for bold faith, practical bible teaching, prayer support, and real-life spiritual guidance." />
@@ -29,7 +30,7 @@
         <a href="mailto:Wisdomadiele57@gmail.com" class="top-link"
           ><i class="fa-solid fa-envelope"></i> Wisdomadiele57@gmail.com</a
         >
-        <a href="https://wa.me/2349072560420" target="_blank" class="top-link"
+        <a href="https://wa.me/2349072560420" target="_blank" rel="noopener noreferrer" class="top-link"
           ><i class="fa-brands fa-whatsapp"></i> WhatsApp Prayer and Life Support</a
         >
         <a href="https://www.youtube.com/@Adiele.Solomon.C" target="_blank" rel="noopener noreferrer" class="top-link"
@@ -61,10 +62,14 @@
           <a href="#services">What We Do</a>
           <a href="#content">Resources</a>
           <a href="#contact">Contact</a>
+          <div class="mobile-nav-actions">
+            <button class="btn btn-outline" data-open-auth>Join / Sign In</button>
+            <a href="admin-login.html" class="btn btn-solid">Admin</a>
+          </div>
         </nav>
 
         <div class="header-actions">
-          <button class="btn btn-outline" id="openAuthBtn">Join / Sign In</button>
+          <button class="btn btn-outline" id="openAuthBtn" data-open-auth>Join / Sign In</button>
           <a href="admin-login.html" class="btn btn-solid">Admin</a>
         </div>
       </div>
@@ -387,9 +392,27 @@
               <a href="mailto:Wisdomadiele57@gmail.com"
                 ><i class="fa-solid fa-envelope"></i> Wisdomadiele57@gmail.com</a
               >
-              <a href="https://wa.me/2349072560420" target="_blank"
+              <a href="https://wa.me/2349072560420" target="_blank" rel="noopener noreferrer"
                 ><i class="fa-brands fa-whatsapp"></i> WhatsApp</a
               >
+            </div>
+            <div class="contact-map">
+              <h3>Find Us on Google Maps</h3>
+              <div class="map-frame">
+                <iframe
+                  id="googleMapEmbed"
+                  loading="lazy"
+                  title="Center of Knowledge location on Google Maps"
+                  referrerpolicy="no-referrer-when-downgrade"></iframe>
+              </div>
+              <a
+                id="googleDirectionsLink"
+                class="map-link"
+                href="https://www.google.com/maps/search/?api=1&query=Center+of+Knowledge+and+Spiritual+Enrichment"
+                target="_blank"
+                rel="noopener noreferrer">
+                <i class="fa-solid fa-map-location-dot"></i> Open in Google Maps
+              </a>
             </div>
           </article>
 
@@ -445,15 +468,137 @@
         <button class="modal-close" id="closeAuthBtn" aria-label="Close login dialog">
           <i class="fa-solid fa-xmark"></i>
         </button>
-        <h3>Member Sign-In</h3>
-        <p>Sign in to access your synchronized ministry resources.</p>
+        <h3 id="authModalTitle">Member Access</h3>
+        <p id="authModalSubtitle">Sign in to access your synchronized ministry resources.</p>
 
-        <form id="loginForm" class="stack-form">
-          <input type="email" id="loginEmail" placeholder="Email" required />
-          <input type="password" id="loginPassword" placeholder="Password" required />
-          <button type="submit" class="btn btn-solid" id="loginSubmitBtn">
+        <div class="auth-tabs" role="tablist" aria-label="Authentication options">
+          <button
+            type="button"
+            class="auth-tab active"
+            data-auth-mode="login"
+            role="tab"
+            aria-selected="true">
             Sign In
           </button>
+          <button
+            type="button"
+            class="auth-tab"
+            data-auth-mode="register"
+            role="tab"
+            aria-selected="false">
+            Register
+          </button>
+          <button
+            type="button"
+            class="auth-tab"
+            data-auth-mode="recover"
+            role="tab"
+            aria-selected="false">
+            Recover
+          </button>
+        </div>
+
+        <form id="loginForm" class="stack-form auth-view" data-auth-view="login">
+          <input type="email" id="loginEmail" placeholder="Email" autocomplete="email" required />
+          <input
+            type="password"
+            id="loginPassword"
+            placeholder="Password"
+            autocomplete="current-password"
+            required />
+          <button type="submit" class="btn btn-solid" id="loginSubmitBtn">Sign In</button>
+          <p class="auth-inline-note">
+            New here?
+            <button type="button" class="auth-inline-link" data-auth-mode="register">
+              Create an account
+            </button>
+          </p>
+        </form>
+
+        <form
+          id="registerForm"
+          class="stack-form auth-view"
+          data-auth-view="register"
+          hidden>
+          <input
+            type="text"
+            id="registerUsername"
+            placeholder="Username"
+            autocomplete="username"
+            minlength="3"
+            required />
+          <input
+            type="email"
+            id="registerEmail"
+            placeholder="Email"
+            autocomplete="email"
+            required />
+          <input
+            type="password"
+            id="registerPassword"
+            placeholder="Password (minimum 8 characters)"
+            autocomplete="new-password"
+            minlength="8"
+            required />
+          <input
+            type="password"
+            id="registerConfirmPassword"
+            placeholder="Confirm password"
+            autocomplete="new-password"
+            minlength="8"
+            required />
+          <button type="submit" class="btn btn-solid" id="registerSubmitBtn">
+            Create Account
+          </button>
+          <p class="auth-inline-note">
+            Already have an account?
+            <button type="button" class="auth-inline-link" data-auth-mode="login">
+              Sign in
+            </button>
+          </p>
+        </form>
+
+        <form id="recoverForm" class="stack-form auth-view" data-auth-view="recover" hidden>
+          <input
+            type="email"
+            id="recoverEmail"
+            placeholder="Your account email"
+            autocomplete="email"
+            required />
+          <input
+            type="text"
+            id="recoverCode"
+            placeholder="Recovery code"
+            autocomplete="one-time-code"
+            required />
+          <input
+            type="password"
+            id="recoverPassword"
+            placeholder="New password (minimum 8 characters)"
+            autocomplete="new-password"
+            minlength="8"
+            required />
+          <input
+            type="password"
+            id="recoverConfirmPassword"
+            placeholder="Confirm new password"
+            autocomplete="new-password"
+            minlength="8"
+            required />
+          <div class="auth-recover-actions">
+            <button type="button" class="btn btn-outline" id="requestRecoveryBtn">
+              Request Recovery Code
+            </button>
+            <button type="submit" class="btn btn-solid" id="recoverSubmitBtn">
+              Reset Password
+            </button>
+          </div>
+          <p class="auth-inline-note">
+            Remembered your password?
+            <button type="button" class="auth-inline-link" data-auth-mode="login">
+              Back to sign in
+            </button>
+          </p>
         </form>
         <p id="authMessage" class="auth-message" aria-live="polite"></p>
       </div>
