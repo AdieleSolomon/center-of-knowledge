@@ -544,6 +544,70 @@ const ensureUserAuthColumns = async (connection) => {
   }
 };
 
+const ensureDefaultAdminUser = async (connection) => {
+  const adminEmail =
+    process.env.DEFAULT_ADMIN_EMAIL || "Wisdomadiele57@gmail.com";
+  const adminRawPassword = process.env.DEFAULT_ADMIN_PASSWORD || "admin123";
+  const adminPassword = await bcrypt.hash(adminRawPassword, 12);
+
+  const [emailMatches] = await connection.execute(
+    "SELECT id FROM users WHERE email = ? LIMIT 1",
+    [adminEmail],
+  );
+
+  if (emailMatches.length > 0) {
+    await connection.execute(
+      `
+        UPDATE users
+        SET password = ?,
+            role = ?,
+            is_approved = ?,
+            updated_at = CURRENT_TIMESTAMP
+        WHERE id = ?
+      `,
+      [adminPassword, "admin", true, emailMatches[0].id],
+    );
+    return {
+      email: adminEmail,
+      password: adminRawPassword,
+    };
+  }
+
+  const [usernameMatches] = await connection.execute(
+    "SELECT id FROM users WHERE username = ? LIMIT 1",
+    ["admin"],
+  );
+
+  if (usernameMatches.length > 0) {
+    await connection.execute(
+      `
+        UPDATE users
+        SET email = ?,
+            password = ?,
+            role = ?,
+            is_approved = ?,
+            updated_at = CURRENT_TIMESTAMP
+        WHERE id = ?
+      `,
+      [adminEmail, adminPassword, "admin", true, usernameMatches[0].id],
+    );
+    return {
+      email: adminEmail,
+      password: adminRawPassword,
+    };
+  }
+
+  await connection.execute(
+    "INSERT INTO users (username, email, password, role, is_approved) VALUES (?, ?, ?, ?, ?)",
+    ["admin", adminEmail, adminPassword, "admin", true],
+  );
+
+  return {
+    email: adminEmail,
+    password: adminRawPassword,
+  };
+};
+
 const initializePostgresDatabase = async () => {
   let connection;
 
@@ -557,22 +621,7 @@ const initializePostgresDatabase = async () => {
 
     await ensureUserAuthColumns(connection);
 
-    const adminEmail =
-      process.env.DEFAULT_ADMIN_EMAIL || "Wisdomadiele57@gmail.com";
-    const adminRawPassword = process.env.DEFAULT_ADMIN_PASSWORD || "admin123";
-    const adminPassword = await bcrypt.hash(adminRawPassword, 12);
-
-    await connection.execute(
-      `
-        INSERT INTO users (username, email, password, role, is_approved)
-        VALUES (?, ?, ?, ?, ?)
-        ON CONFLICT (email) DO UPDATE
-        SET password = EXCLUDED.password,
-            role = EXCLUDED.role,
-            is_approved = EXCLUDED.is_approved
-      `,
-      ["admin", adminEmail, adminPassword, "admin", true],
-    );
+    await ensureDefaultAdminUser(connection);
 
     const defaultSettings = [
       ["site_title", "Spiritual Center", "string"],
@@ -734,22 +783,7 @@ const initializeDatabase = async () => {
     `);
 
     // Create default admin user
-    const adminEmail =
-      process.env.DEFAULT_ADMIN_EMAIL || "Wisdomadiele57@gmail.com";
-    const adminRawPassword = process.env.DEFAULT_ADMIN_PASSWORD || "admin123";
-    const adminPassword = await bcrypt.hash(adminRawPassword, 12);
-
-    await connection.execute(
-      `
-      INSERT INTO users (username, email, password, role, is_approved) 
-      VALUES (?, ?, ?, ?, ?)
-      ON DUPLICATE KEY UPDATE 
-        password = VALUES(password),
-        role = VALUES(role),
-        is_approved = VALUES(is_approved)
-    `,
-      ["admin", adminEmail, adminPassword, "admin", true],
-    );
+    await ensureDefaultAdminUser(connection);
 
     // Insert default settings
     const defaultSettings = [
