@@ -1945,16 +1945,23 @@ app.post("/api/auth/reset-password", async (req, res) => {
 
 app.post("/api/auth/login", async (req, res) => {
   try {
-    const { email, password } = req.body;
-    const normalizedEmail = normalizeEmail(email);
+    const { email, username, password } = req.body;
+    const rawIdentifier =
+      typeof email === "string" && email.trim().length > 0 ? email : username;
+    const normalizedIdentifier = String(rawIdentifier || "")
+      .trim()
+      .toLowerCase();
 
-    if (!normalizedEmail || !password) {
-      return res.status(400).json({ error: "Email and password are required" });
+    if (!normalizedIdentifier || !password) {
+      return res.status(400).json({
+        error: "Email/username and password are required",
+      });
     }
 
-    const [users] = await pool.execute("SELECT * FROM users WHERE email = ?", [
-      normalizedEmail,
-    ]);
+    const [users] = await pool.execute(
+      "SELECT * FROM users WHERE LOWER(email) = ? OR LOWER(username) = ? LIMIT 1",
+      [normalizedIdentifier, normalizedIdentifier],
+    );
 
     if (users.length === 0) {
       return res.status(401).json({ error: "Invalid credentials" });
