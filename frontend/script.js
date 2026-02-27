@@ -472,7 +472,7 @@ const App = (() => {
       const password = ui.loginPassword?.value;
 
       if (!email || !password) {
-        setAuthMessage("Please enter both email and password.", true);
+        setAuthMessage("Please enter email/username and password.", true);
         return;
       }
 
@@ -816,11 +816,11 @@ const App = (() => {
   async function loadResources() {
     if (!ui.resourceGrid) return;
 
-    renderResources(fallbackResources, false);
+    ui.resourceGrid.innerHTML = "";
 
     try {
       const fetchMaterials = async (token = null) => {
-        const headers = token ? { Authorization: `Bearer ${token}` } : undefined;
+        const headers = token ? { Authorization: `Bearer ${token}` } : {};
         const response = await fetch(`${API_BASE}/materials?limit=6&page=1`, {
           headers,
         });
@@ -843,11 +843,15 @@ const App = (() => {
           "Sign in to synchronize uploaded materials. Showing curated resources for now.",
           "warning",
         );
+        renderResources(fallbackResources, false);
         return;
       }
 
       if (!response.ok) {
         throw new Error(data?.error || "Failed to load resources.");
+      }
+      if (!data || data.success !== true) {
+        throw new Error("Invalid response from materials endpoint.");
       }
 
       const materials = Array.isArray(data.materials) ? data.materials : [];
@@ -856,6 +860,7 @@ const App = (() => {
           "No uploaded materials are available yet. Showing curated resources.",
           "warning",
         );
+        renderResources(fallbackResources, false);
         return;
       }
 
@@ -869,7 +874,7 @@ const App = (() => {
 
       renderResources(normalized, true);
       setResourceNotice(
-        "Latest ministry materials are available for all visitors.",
+        `Latest ministry materials (${materials.length} available).`,
         "success",
       );
     } catch (error) {
@@ -877,16 +882,18 @@ const App = (() => {
         "Unable to load uploaded materials at the moment. Showing curated resources.",
         "error",
       );
+      renderResources(fallbackResources, false);
     }
   }
 
   function resolveFileUrl(fileUrl) {
-    if (!fileUrl) return "#";
+    if (!fileUrl) return "#contact";
     if (/^https?:\/\//i.test(fileUrl)) return fileUrl;
-    const normalizedPath = fileUrl.startsWith("/")
-      ? fileUrl
-      : `/${fileUrl.replace(/^\.?\//, "")}`;
-    return `${BACKEND_ORIGIN}${normalizedPath}`;
+    const normalizedPath = String(fileUrl)
+      .replace(/\\/g, "/")
+      .replace(/^\.?\/*/, "");
+    if (!normalizedPath) return "#contact";
+    return `${BACKEND_ORIGIN}/${normalizedPath}`;
   }
 
   function renderResources(resources, fromApi) {

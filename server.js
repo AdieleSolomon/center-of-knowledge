@@ -1070,103 +1070,119 @@ app.get("/api/materials", authenticateOptionalToken, async (req, res) => {
     const offset = (parsedPage - 1) * parsedLimit;
     const isAdminRequest = req.user?.role === "admin";
 
-    // Build WHERE clause conditions and params
-    let whereConditions = isAdminRequest ? "WHERE 1=1" : "WHERE m.is_public = TRUE";
+    const whereParts = [];
     const filterParams = [];
-
+    if (!isAdminRequest) {
+      whereParts.push("m.is_public = TRUE");
+    }
     if (search) {
-      whereConditions += ` AND (m.title LIKE ? OR m.description LIKE ?)`;
+      whereParts.push("(m.title LIKE ? OR m.description LIKE ?)");
       filterParams.push(`%${search}%`, `%${search}%`);
     }
-
     if (category) {
-      whereConditions += ` AND m.category = ?`;
+      whereParts.push("m.category = ?");
       filterParams.push(category);
     }
-
     if (type) {
-      whereConditions += ` AND m.type = ?`;
+      whereParts.push("m.type = ?");
       filterParams.push(type);
     }
-
-    if (isAdminRequest) {
-      const countQuery = `
-        SELECT COUNT(*) as total
-        FROM materials m
-        LEFT JOIN users u ON m.uploader_id = u.id
-        ${whereConditions}
-      `;
-      const [countResult] = await pool.execute(countQuery, filterParams);
-      const total = countResult[0]?.total || 0;
-
-      const query = `
-        SELECT
-          m.*,
-          u.username as uploader_name,
-          u.email as uploader_email,
-          DATE_FORMAT(m.created_at, '%Y-%m-%d %H:%i:%s') as formatted_date
-        FROM materials m
-        LEFT JOIN users u ON m.uploader_id = u.id
-        ${whereConditions}
-        ORDER BY m.created_at DESC
-        LIMIT ? OFFSET ?
-      `;
-
-      const [materials] = await pool.execute(query, [
-        ...filterParams,
-        parsedLimit,
-        offset,
-      ]);
-
-      return res.json({
-        success: true,
-        access: "admin",
-        materials,
-        pagination: {
-          page: parsedPage,
-          limit: parsedLimit,
-          total,
-          pages: Math.ceil(total / parsedLimit),
-        },
-      });
-    }
+    const whereClause = whereParts.length ? `WHERE ${whereParts.join(" AND ")}` : "";
 
     const countQuery = `
       SELECT COUNT(*) as total
       FROM materials m
-      ${whereConditions}
+      ${whereClause}
     `;
     const [countResult] = await pool.execute(countQuery, filterParams);
-    const total = countResult[0]?.total || 0;
+    const total = Number(countResult[0]?.total || 0);
 
-    const query = `
-      SELECT
-        m.id,
-        m.title,
-        m.description,
-        m.category,
-        m.type,
-        m.file_url,
-        m.file_name,
-        m.file_size,
-        m.views,
-        m.created_at,
-        m.updated_at
-      FROM materials m
-      ${whereConditions}
-      ORDER BY m.created_at DESC
-      LIMIT ? OFFSET ?
-    `;
-    const [materials] = await pool.execute(query, [
+    const selectQuery = isAdminRequest
+      ? `
+        SELECT
+          m.id,
+          m.title,
+          m.description,
+          m.category,
+          m.type,
+          m.file_url,
+          m.file_name,
+          m.file_size,
+          m.views,
+          m.downloads,
+          m.is_public,
+          m.uploader_id,
+          m.created_at,
+          m.updated_at,
+          u.username as uploader_name,
+          u.email as uploader_email
+        FROM materials m
+        LEFT JOIN users u ON m.uploader_id = u.id
+        ${whereClause}
+        ORDER BY m.created_at DESC
+        LIMIT ? OFFSET ?
+      `
+      : `
+        SELECT
+          m.id,
+          m.title,
+          m.description,
+          m.category,
+          m.type,
+          m.file_url,
+          m.file_name,
+          m.file_size,
+          m.views,
+          m.downloads,
+          m.is_public,
+          m.uploader_id,
+          m.created_at,
+          m.updated_at,
+          u.username as uploader_name
+        FROM materials m
+        LEFT JOIN users u ON m.uploader_id = u.id
+        ${whereClause}
+        ORDER BY m.created_at DESC
+        LIMIT ? OFFSET ?
+      `;
+
+    const [materials] = await pool.execute(selectQuery, [
       ...filterParams,
       parsedLimit,
       offset,
     ]);
 
+    const normalizedMaterials = (materials || []).map((material) => {
+      const isPublicValue =
+        material?.is_public === true ||
+        material?.is_public === 1 ||
+        material?.is_public === "1" ||
+        material?.is_public === "true";
+
+      return {
+        id: material.id,
+        title: material.title || "Untitled",
+        description: material.description || "",
+        category: material.category || "uncategorized",
+        type: material.type || "document",
+        file_url: material.file_url || null,
+        file_name: material.file_name || null,
+        file_size: Number(material.file_size || 0),
+        views: Number(material.views || 0),
+        downloads: Number(material.downloads || 0),
+        is_public: isPublicValue,
+        uploader_id: material.uploader_id || null,
+        uploader_name: material.uploader_name || "System",
+        uploader_email: isAdminRequest ? material.uploader_email || null : undefined,
+        created_at: material.created_at,
+        updated_at: material.updated_at,
+      };
+    });
+
     return res.json({
       success: true,
-      access: "public",
-      materials,
+      access: isAdminRequest ? "admin" : "public",
+      materials: normalizedMaterials,
       pagination: {
         page: parsedPage,
         limit: parsedLimit,
@@ -1190,19 +1206,52 @@ app.get("/api/materials/:id", authenticateOptionalToken, async (req, res) => {
     const materialId = req.params.id;
     const isAdminRequest = req.user?.role === "admin";
     const visibilityClause = isAdminRequest ? "" : " AND m.is_public = TRUE";
-
-    const [materials] = await pool.execute(
-      `
-      SELECT 
-        m.*,
+    const selectQuery = isAdminRequest
+      ? `
+      SELECT
+        m.id,
+        m.title,
+        m.description,
+        m.category,
+        m.type,
+        m.file_url,
+        m.file_name,
+        m.file_size,
+        m.views,
+        m.downloads,
+        m.is_public,
+        m.uploader_id,
+        m.created_at,
+        m.updated_at,
         u.username as uploader_name,
         u.email as uploader_email
       FROM materials m
       LEFT JOIN users u ON m.uploader_id = u.id
       WHERE m.id = ?${visibilityClause}
-    `,
-      [materialId],
-    );
+    `
+      : `
+      SELECT
+        m.id,
+        m.title,
+        m.description,
+        m.category,
+        m.type,
+        m.file_url,
+        m.file_name,
+        m.file_size,
+        m.views,
+        m.downloads,
+        m.is_public,
+        m.uploader_id,
+        m.created_at,
+        m.updated_at,
+        u.username as uploader_name
+      FROM materials m
+      LEFT JOIN users u ON m.uploader_id = u.id
+      WHERE m.id = ?${visibilityClause}
+    `;
+
+    const [materials] = await pool.execute(selectQuery, [materialId]);
 
     if (materials.length === 0) {
       return res.status(404).json({
@@ -1216,9 +1265,33 @@ app.get("/api/materials/:id", authenticateOptionalToken, async (req, res) => {
       materialId,
     ]);
 
+    const material = materials[0];
+    const isPublicValue =
+      material?.is_public === true ||
+      material?.is_public === 1 ||
+      material?.is_public === "1" ||
+      material?.is_public === "true";
+
     res.json({
       success: true,
-      material: materials[0],
+      material: {
+        id: material.id,
+        title: material.title || "Untitled",
+        description: material.description || "",
+        category: material.category || "uncategorized",
+        type: material.type || "document",
+        file_url: material.file_url || null,
+        file_name: material.file_name || null,
+        file_size: Number(material.file_size || 0),
+        views: Number(material.views || 0),
+        downloads: Number(material.downloads || 0),
+        is_public: isPublicValue,
+        uploader_id: material.uploader_id || null,
+        uploader_name: material.uploader_name || "System",
+        uploader_email: isAdminRequest ? material.uploader_email || null : undefined,
+        created_at: material.created_at,
+        updated_at: material.updated_at,
+      },
     });
   } catch (error) {
     console.error("Get material error:", error);
@@ -2013,9 +2086,13 @@ app.post("/api/auth/reset-password", async (req, res) => {
 
 app.post("/api/auth/login", async (req, res) => {
   try {
-    const { email, username, password } = req.body;
+    const { email, username, identifier, password } = req.body;
     const rawIdentifier =
-      typeof email === "string" && email.trim().length > 0 ? email : username;
+      typeof email === "string" && email.trim().length > 0
+        ? email
+        : typeof username === "string" && username.trim().length > 0
+          ? username
+          : identifier;
     const normalizedIdentifier = String(rawIdentifier || "")
       .trim()
       .toLowerCase();
@@ -2026,10 +2103,12 @@ app.post("/api/auth/login", async (req, res) => {
       });
     }
 
-    const [users] = await pool.execute(
-      "SELECT * FROM users WHERE LOWER(email) = ? OR LOWER(username) = ? LIMIT 1",
-      [normalizedIdentifier, normalizedIdentifier],
-    );
+    const isEmailIdentifier = normalizedIdentifier.includes("@");
+    const loginQuery = isEmailIdentifier
+      ? "SELECT * FROM users WHERE LOWER(email) = ? LIMIT 1"
+      : "SELECT * FROM users WHERE LOWER(username) = ? LIMIT 1";
+
+    const [users] = await pool.execute(loginQuery, [normalizedIdentifier]);
 
     if (users.length === 0) {
       return res.status(401).json({ error: "Invalid credentials" });
