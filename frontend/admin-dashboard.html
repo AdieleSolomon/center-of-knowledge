@@ -2428,7 +2428,7 @@
           // Update stats
           if (statsData.success && statsData.stats) {
             updateDashboardStats(statsData);
-            updateRecentMaterials(materialsData.materials || []);
+            updateRecentMaterialsList(materialsData.materials || []);
             updateNotificationsBadge(notificationsData.unread_count || 0);
           }
 

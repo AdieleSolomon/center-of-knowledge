@@ -862,6 +862,10 @@ h3 {
   gap: 14px;
 }
 
+.mobile-footer-only {
+  display: none;
+}
+
 .footer-links a:hover {
   color: #fff;
 }
@@ -1099,6 +1103,10 @@ h3 {
 }
 
 @media (max-width: 900px) {
+  .topbar {
+    display: none;
+  }
+
   .topbar-inner {
     justify-content: center;
     gap: 14px;
@@ -1112,6 +1120,12 @@ h3 {
   .top-link {
     white-space: normal;
     text-align: center;
+  }
+
+  .mobile-footer-only {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
   }
 
   .hero-video-embed {

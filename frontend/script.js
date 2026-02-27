@@ -818,26 +818,29 @@ const App = (() => {
 
     renderResources(fallbackResources, false);
 
-    if (!state.token) {
-      setResourceNotice(
-        "Sign in to synchronize ministry materials. Showing curated resources for now.",
-        "warning",
-      );
-      return;
-    }
-
     try {
-      const response = await fetch(`${API_BASE}/materials?limit=6&page=1`, {
-        headers: {
-          Authorization: `Bearer ${state.token}`,
-        },
-      });
+      const fetchMaterials = async (token = null) => {
+        const headers = token ? { Authorization: `Bearer ${token}` } : undefined;
+        const response = await fetch(`${API_BASE}/materials?limit=6&page=1`, {
+          headers,
+        });
+        const data = await response
+          .json()
+          .catch(() => ({ error: "Unexpected server response format." }));
+        return { response, data };
+      };
 
-      const data = await response.json();
+      let { response, data } = await fetchMaterials(state.token || null);
 
-      if (response.status === 403) {
+      if ((response.status === 401 || response.status === 403) && state.token) {
+        clearSession();
+        updateAuthUI();
+        ({ response, data } = await fetchMaterials(null));
+      }
+
+      if (response.status === 401 || response.status === 403) {
         setResourceNotice(
-          "Your account is signed in, but synchronized materials are currently restricted to approved admin sessions.",
+          "Sign in to synchronize uploaded materials. Showing curated resources for now.",
           "warning",
         );
         return;
@@ -865,10 +868,13 @@ const App = (() => {
       }));
 
       renderResources(normalized, true);
-      setResourceNotice("Latest ministry materials synchronized successfully.", "success");
+      setResourceNotice(
+        "Latest ministry materials are available for all visitors.",
+        "success",
+      );
     } catch (error) {
       setResourceNotice(
-        "Unable to synchronize materials at the moment. Showing curated resources.",
+        "Unable to load uploaded materials at the moment. Showing curated resources.",
         "error",
       );
     }
